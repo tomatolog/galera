@@ -40,7 +40,8 @@ std::ostream& galera::operator<<(std::ostream& os, ReplicatorSMM::State state)
 galera::ReplicatorSMM::ReplicatorSMM(const struct wsrep_init_args* args)
     :
     ist_event_queue_    (),
-    init_lib_           (reinterpret_cast<gu_log_cb_t>(args->logger_cb)),
+    init_lib_           (reinterpret_cast<gu_log_cb_t>(args->logger_cb),
+                         reinterpret_cast<gu_pfs_instr_cb_t>(args->pfs_instr_cb)),
     config_             (),
     init_config_        (config_, args->node_address, args->data_dir),
     parse_options_      (*this, config_, args->options),
@@ -77,11 +78,17 @@ galera::ReplicatorSMM::ReplicatorSMM(const struct wsrep_init_args* args)
     unordered_cb_       (args->unordered_cb),
     sst_donate_cb_      (args->sst_donate_cb),
     synced_cb_          (args->synced_cb),
+    abort_cb_           (args->abort_cb),
     sst_donor_          (),
     sst_uuid_           (WSREP_UUID_UNDEFINED),
     sst_seqno_          (WSREP_SEQNO_UNDEFINED),
+#ifdef HAVE_PSI_INTERFACE
+    sst_mutex_          (WSREP_PFS_INSTR_TAG_SST_MUTEX),
+    sst_cond_           (WSREP_PFS_INSTR_TAG_SST_CONDVAR),
+#else
     sst_mutex_          (),
     sst_cond_           (),
+#endif /* HAVE_PSI_INTERFACE */
     sst_retry_sec_      (1),
     sst_received_       (false),
     gcache_             (config_, config_.get(BASE_DIR)),
@@ -92,11 +99,21 @@ galera::ReplicatorSMM::ReplicatorSMM(const struct wsrep_init_args* args)
     as_                 (new GcsActionSource(slave_pool_, gcs_, *this, gcache_)),
     ist_receiver_       (config_, gcache_, slave_pool_, *this, args->node_address),
     ist_senders_        (gcache_),
+    ist_prepared_       (false),
     wsdb_               (),
-    cert_               (config_, service_thd_),
+    cert_               (config_, service_thd_, gcache_),
+#ifdef HAVE_PSI_INTERFACE
+    local_monitor_      (WSREP_PFS_INSTR_TAG_LOCAL_MONITOR_MUTEX,
+                         WSREP_PFS_INSTR_TAG_LOCAL_MONITOR_CONDVAR),
+    apply_monitor_      (WSREP_PFS_INSTR_TAG_APPLY_MONITOR_MUTEX,
+                         WSREP_PFS_INSTR_TAG_APPLY_MONITOR_CONDVAR),
+    commit_monitor_     (WSREP_PFS_INSTR_TAG_COMMIT_MONITOR_MUTEX,
+                         WSREP_PFS_INSTR_TAG_COMMIT_MONITOR_CONDVAR),
+#else
     local_monitor_      (),
     apply_monitor_      (),
     commit_monitor_     (),
+#endif /* HAVE_PSI_INTERFACE */
     causal_read_timeout_(config_.get(Param::causal_read_timeout)),
     receivers_          (),
     replicated_         (),
@@ -112,9 +129,22 @@ galera::ReplicatorSMM::ReplicatorSMM(const struct wsrep_init_args* args)
     causal_reads_       (),
     preordered_id_      (),
     incoming_list_      (""),
+#ifdef HAVE_PSI_INTERFACE
+    incoming_mutex_     (WSREP_PFS_INSTR_TAG_INCOMING_MUTEX),
+#else
     incoming_mutex_     (),
+#endif /* HAVE_PSI_INTERFACE */
     wsrep_stats_        ()
 {
+    /*
+      Register the application callback that should be called
+      if the wsrep provider will teminated abnormally:
+    */
+    if (abort_cb_)
+    {
+        gu_abort_register_cb(abort_cb_);
+    }
+
     // @todo add guards (and perhaps actions)
     state_.add_transition(Transition(S_CLOSED,  S_DESTROYED));
     state_.add_transition(Transition(S_CLOSED,  S_CONNECTED));
@@ -167,6 +197,13 @@ galera::ReplicatorSMM::ReplicatorSMM(const struct wsrep_init_args* args)
 
     log_debug << "End state: " << uuid << ':' << seqno << " #################";
 
+    // We need to set the current value of uuid and update
+    // stored seqno value, if the non-trivial recovery
+    // information provided on startup:
+
+    // this will persist the recover/valid co-ordinates to grastate.dat
+    // Following logic that plan to put node in an inconsistent state can update
+    // the grastate to mark as unsafe and then safe (on successful completion).
     set_initial_position(uuid, seqno);
     gcache_.seqno_reset(gu::GTID(uuid, seqno));
     // update gcache position to one supplied by app.
@@ -226,7 +263,7 @@ void galera::ReplicatorSMM::wait_for_CLOSED(gu::Lock& lock)
 
 galera::ReplicatorSMM::~ReplicatorSMM()
 {
-    log_info << "dtor state: " << state_();
+    log_debug << "dtor state: " << state_();
 
     gu::Lock lock(closing_mutex_);
 
@@ -303,6 +340,14 @@ wsrep_status_t galera::ReplicatorSMM::connect(const std::string& cluster_name,
 
 wsrep_status_t galera::ReplicatorSMM::close()
 {
+    // We must be sure that IST receiver will be stopped,
+    // even if the IST during the execution:
+    if (ist_prepared_)
+    {
+        ist_prepared_ = false;
+        sst_seqno_ = ist_receiver_.finished();
+    }
+
     gu::Lock lock(closing_mutex_);
 
     if (state_() > S_CLOSED)
@@ -451,10 +496,15 @@ void galera::ReplicatorSMM::apply_trx(void* recv_ctx, TrxHandle& trx)
 
     wsrep_bool_t exit_loop(false);
 
-    if (gu_likely(co_mode_ != CommitOrder::BYPASS))
+    TrxHandle* commit_trx_handle = &trx;
+    if (gu_likely(co_mode_ != CommitOrder::BYPASS && trx.is_toi()))
     {
+        /* TOI action are fully serialized so it is make sense to
+        enforce commit ordering at this stage. For non-TOI action
+        commit ordering is delayed to take advantage of full parallelism. */
         gu_trace(commit_monitor_.enter(co));
         assert(trx.global_seqno() > STATE_SEQNO());
+        commit_trx_handle = NULL;
     }
     trx.set_state(TrxHandle::S_COMMITTING);
 
@@ -477,8 +527,9 @@ void galera::ReplicatorSMM::apply_trx(void* recv_ctx, TrxHandle& trx)
         ae.free();
     }
 
-    wsrep_cb_status_t const rcode(commit_cb_(recv_ctx, commit_flags,
-                                             &meta, &exit_loop));
+    /* Pass trx handle so that commit monitor can be started at later stage */
+    wsrep_cb_status_t const rcode(commit_cb_(
+	recv_ctx, commit_trx_handle, commit_flags, &meta, &exit_loop));
 
     if (gu_unlikely (rcode != WSREP_CB_SUCCESS))
         gu_throw_fatal << (commit_flags & WSREP_FLAG_ROLLBACK ?
@@ -497,7 +548,13 @@ void galera::ReplicatorSMM::apply_trx(void* recv_ctx, TrxHandle& trx)
             /* trx must be set committed while in at least one monitor */
             safe_to_discard = cert_.set_trx_committed(trx);
 
-        commit_monitor_.leave(co);
+        if (trx.is_toi())
+        {
+            commit_monitor_.leave(co);
+
+            // Allow tests to block the applier thread using the DBUG facilities
+            GU_DBUG_SYNC_WAIT("sync.apply_trx.after_commit_leave");
+        }
     }
 
     trx.set_state(end_state);
@@ -828,6 +885,32 @@ galera::ReplicatorSMM::abort_trx(TrxHandle* trx)
 wsrep_status_t galera::ReplicatorSMM::pre_commit(TrxHandlePtr&     trx,
                                                  wsrep_trx_meta_t* meta)
 {
+    /* Replicate and pre-commit action are 2 different actions now.
+    This means transaction can get aborted on completion of replicate
+    before pre-commit action start. This condition capture that scenario
+    and ensure that resources are released. */
+    if (trx->state() == TrxHandle::S_MUST_ABORT)
+    {
+        wsrep_status_t retval(WSREP_PRECOMMIT_ABORT);
+        retval = cert_for_aborted(trx);
+
+        if (retval != WSREP_BF_ABORT)
+        {
+            cancel_monitors<true>(*trx);
+        }
+        else if (meta != 0)
+        {
+            meta->gtid.uuid  = state_uuid_;
+            meta->gtid.seqno = trx->global_seqno();
+            meta->depends_on = trx->depends_seqno();
+        }
+
+        if (trx->state() == TrxHandle::S_MUST_ABORT)
+            trx->set_state(TrxHandle::S_ABORTING);
+
+        return retval;
+    }
+
     assert(trx->state() == TrxHandle::S_REPLICATING);
     trx->set_state(TrxHandle::S_CERTIFYING);
 
@@ -1032,7 +1115,7 @@ wsrep_status_t galera::ReplicatorSMM::replay_trx(TrxHandlePtr& txp, void* trx_ct
                 (TrxHandle::trx_flags_to_wsrep_flags(trx->flags()));
             wsrep_bool_t unused(false);
             wsrep_cb_status_t const rcode
-                (commit_cb_(trx_ctx, commit_flags, &meta, &unused));
+                (commit_cb_(trx_ctx, NULL, commit_flags, &meta, &unused));
 
             if (gu_unlikely(rcode != WSREP_CB_SUCCESS))
                 gu_throw_fatal << (commit_flags & WSREP_FLAG_ROLLBACK ?
@@ -1044,8 +1127,33 @@ wsrep_status_t galera::ReplicatorSMM::replay_trx(TrxHandlePtr& txp, void* trx_ct
         }
         catch (gu::Exception& e)
         {
+            log_fatal << "Failed to re-apply trx: " << *trx;
+            log_fatal << e.what();
+            log_fatal << "Node consistency compromized, aborting...";
+
             mark_corrupt_and_close();
             throw;
+
+#ifdef PERCONA
+            /* Ideally this shouldn't fail but if it does then we need
+            to ensure clean shutdown with termination of all mysql threads
+            and galera replication and rollback threads.
+            Currently wsrep part of the code just invokes unireg_abort
+            which doesn't ensure this clean shutdown.
+            So for now we take the same approach like we do with normal
+            apply transaction failure. */
+            log_fatal << "Failed to re-apply trx: " << *trx;
+            log_fatal << e.what();
+            log_fatal << "Node consistency compromized, aborting...";
+
+            /* Before doing a graceful exit ensure that node isolate itself
+            from the cluster. This will cause the quorum to re-evaluate
+            and if minority nodes are left with different set of data
+            they can turn non-Primary to avoid further data consistency issue. */
+            param_set("gmcast.isolate", "1");
+
+            abort();
+#endif
         }
 
         // apply, commit monitors are released in post commit
@@ -1090,9 +1198,9 @@ wsrep_status_t galera::ReplicatorSMM::post_rollback(TrxHandle* trx)
 }
 
 
-wsrep_status_t galera::ReplicatorSMM::release_commit(TrxHandle* trx)
+wsrep_status_t galera::ReplicatorSMM::interim_commit(TrxHandle* trx)
 {
-    log_debug << "release_commit() for trx: " << *trx;
+    log_debug << "interim_commit() for trx: " << *trx;
 
     assert((trx->flags() & TrxHandle::F_ROLLBACK) == 0);
 
@@ -1113,7 +1221,48 @@ wsrep_status_t galera::ReplicatorSMM::release_commit(TrxHandle* trx)
     assert(trx->local_seqno() > -1 && trx->global_seqno() > -1);
 
     CommitOrder co(*trx, co_mode_);
-    if (co_mode_ != CommitOrder::BYPASS) commit_monitor_.leave(co);
+    if (co_mode_ != CommitOrder::BYPASS)
+    {
+        commit_monitor_.leave(co);
+
+        // Allow tests to block the applier thread using the DBUG facilities
+        GU_DBUG_SYNC_WAIT("sync.interim_commit.after_commit_leave");
+    }
+    trx->mark_interim_committed(true);
+
+    return WSREP_OK;
+}
+
+
+wsrep_status_t galera::ReplicatorSMM::release_commit(TrxHandle* trx)
+{
+    log_debug << "release_commit() for trx: " << *trx;
+
+    if (trx->state() == TrxHandle::S_MUST_ABORT)
+    {
+        // This is possible in case of ALG: BF applier BF aborts
+        // trx that has already grabbed commit monitor and is committing.
+        // However, this should be acceptable assuming that commit
+        // operation does not reserve any more resources and is able
+        // to release already reserved resources.
+        log_debug << "trx was BF aborted during commit: " << *trx;
+        // manipulate state to avoid crash
+        trx->set_state(TrxHandle::S_MUST_REPLAY);
+        trx->set_state(TrxHandle::S_REPLAYING);
+    }
+    assert(trx->state() == TrxHandle::S_COMMITTING ||
+           trx->state() == TrxHandle::S_REPLAYING);
+    assert(trx->local_seqno() > -1 && trx->global_seqno() > -1);
+
+    if (!(trx->is_interim_committed()))
+    {
+        CommitOrder co(*trx, co_mode_);
+        if (co_mode_ != CommitOrder::BYPASS) commit_monitor_.leave(co);
+
+        // Allow tests to block the applier thread using the DBUG facilities
+        GU_DBUG_SYNC_WAIT("sync.post_commit.after_commit_leave");
+    }
+    trx->mark_interim_committed(false);
 
     trx->set_state(TrxHandle::S_COMMITTED);
 
@@ -1208,17 +1357,22 @@ wsrep_status_t galera::ReplicatorSMM::sync_wait(wsrep_gtid_t* upto,
         }
         gu::datetime::Date wait_until(gu::datetime::Date::calendar() + timeout);
 
+#ifdef GALERA
         if (gu_likely(co_mode_ != CommitOrder::BYPASS))
         {
             commit_monitor_.wait(wait_gtid, wait_until);
         }
         else
+#endif
+        // PXC release commit monitor before the real commit is done (and rely on
+        // MySQL group commit protocol).
+        // This means sync-wait based on commit ordering may get wrong result.
         {
             apply_monitor_.wait(wait_gtid, wait_until);
         }
         if (gtid != 0)
         {
-            commit_monitor_.last_left_gtid(*gtid);
+            apply_monitor_.last_left_gtid(*gtid);
         }
         ++causal_reads_;
         return WSREP_OK;
@@ -1230,7 +1384,7 @@ wsrep_status_t galera::ReplicatorSMM::sync_wait(wsrep_gtid_t* upto,
     }
     catch (gu::Exception& e)
     {
-        log_debug << "monitor wait failed for sync_wait: " << e.what();
+        log_info << "monitor wait failed for sync wait (repl.causal_read_timeout): " << e.what();
         return WSREP_TRX_FAIL;
     }
 }
@@ -1322,7 +1476,11 @@ galera::ReplicatorSMM::to_isolation_end(TrxHandlePtr& txp,
            trx.state() == TrxHandle::S_ABORTING);
 
     CommitOrder co(trx, co_mode_);
-    if (co_mode_ != CommitOrder::BYPASS) commit_monitor_.leave(co);
+    if (co_mode_ != CommitOrder::BYPASS)
+    {
+        commit_monitor_.leave(co);
+        GU_DBUG_SYNC_WAIT("sync.to_isolation_end.after_commit_leave");
+    }
     ApplyOrder ao(trx);
     report_last_committed(cert_.set_trx_committed(trx));
     apply_monitor_.leave(ao);
@@ -1450,9 +1608,18 @@ galera::ReplicatorSMM::sst_sent(const wsrep_gtid_t& state_id, int const rcode)
     assert (rcode == 0 || state_id.seqno == WSREP_SEQNO_UNDEFINED);
     assert (rcode != 0 || state_id.seqno >= 0);
 
+    GU_DBUG_SYNC_WAIT("sst_sent");
+
     if (state_() != S_DONOR)
     {
         log_error << "sst sent called when not SST donor, state " << state_();
+        /* If sst-sent fails node should restore itself back to joined state.
+        sst-sent can fail commonly due to n/w error where-in DONOR may loose
+        connectivity to JOINER (or existing cluster) but on re-join it should
+        restore the original state (DONOR->JOINER->JOINED->SYNCED) without
+        waiting for JOINER. sst-failure on JOINER will gracefully shutdown the
+        joiner. */
+        gcs_.join_notification();
         return WSREP_CONN_FAIL;
     }
 
@@ -1491,6 +1658,15 @@ void galera::ReplicatorSMM::process_trx(void* recv_ctx, const TrxHandlePtr& trx)
     assert(trx->last_seen_seqno() >= 0);
     assert(trx->depends_seqno() == -1);
     assert(trx->state() == TrxHandle::S_REPLICATING);
+
+    // If the SST has been canceled, then ignore any other
+    // incoming transactions, as the node should be shutting down
+    if (sst_state_ == SST_CANCELED)
+    {
+        log_info << "Ignorng trx(" << trx->global_seqno() << ") due to SST failure";
+        return;
+    }
+
     trx->set_state(TrxHandle::S_CERTIFYING);
 
     wsrep_status_t const retval(cert_and_catch(trx));
@@ -1509,6 +1685,15 @@ void galera::ReplicatorSMM::process_trx(void* recv_ctx, const TrxHandlePtr& trx)
             log_fatal << "Failed to apply trx: " << *trx;
             log_fatal << e.what();
             log_fatal << "Node consistency compromized, leaving cluster...";
+
+#ifdef PERCONA
+            /* Before doing a graceful exit ensure that node isolate itself
+            from the cluster. This will cause the quorum to re-evaluate
+            and if minority nodes are left with different set of data
+            they can turn non-Primary to avoid further data consistency issue. */
+            param_set("gmcast.isolate", "1");
+#endif
+
             mark_corrupt_and_close();
             assert(0); // this is an unexpected exception
             // keep processing events from the queue until provider is closed
@@ -1713,6 +1898,16 @@ galera::ReplicatorSMM::process_conf_change(void*                    recv_ctx,
 {
     assert(act.seqno_l >= 0);
 
+    // If SST operation was canceled, we shall immediately
+    // return from the function to avoid hang-up in the monitor
+    // drain code and avoid restart of the SST.
+    if (sst_state_ == SST_CANCELED)
+    {
+        // We must resume receiving messages from gcs.
+        gcs_.resume_recv();
+        return;
+    }
+
     LocalOrder lo(act.seqno_l);
     gu_trace(local_monitor_.enter(lo));
 
@@ -1821,9 +2016,28 @@ galera::ReplicatorSMM::process_conf_change(void*                    recv_ctx,
         if (st_required && app_wants_st)
         {
             // GCache::Seqno_reset() happens here
+            long ret =
             request_state_transfer (recv_ctx,
                                     group_uuid, group_seqno, app_req,
                                     app_req_len);
+
+            if (ret < 0 || sst_state_ == SST_CANCELED)
+            {
+                // If the IST/SST request was canceled due to error
+                // at the GCS level or if request was canceled by another
+                // thread (by initiative of the server), and if the node
+                // remain in the S_JOINING state, then we must return it
+                // to the S_CONNECTED state (to the original state, which
+                // exist before the request_state_transfer started).
+                // In other words, if state transfer failed, then we
+                // need to move node back to the original state, because
+                // joining was canceled:
+
+                if (state_() == S_JOINING)
+                {
+                    state_.shift_to(S_CONNECTED);
+                }
+            }
         }
         else
         {
@@ -1862,7 +2076,16 @@ galera::ReplicatorSMM::process_conf_change(void*                    recv_ctx,
             st_.set(state_uuid_, WSREP_SEQNO_UNDEFINED, safe_to_bootstrap_);
         }
 
+        // We should not try to joining the cluster at the GCS level,
+        // if the node is not in the S_JOINING state, or if we did not
+        // sent the IST/SST request, or if it is failed. In other words,
+        // any state other than SST_WAIT (f.e. SST_NONE or SST_CANCELED)
+        // not require us to sending the JOIN message at the GCS level:
+
+        if (sst_state_ == SST_WAIT && state_() == S_JOINING)
+#ifdef GALERA
         if (state_() == S_JOINING && sst_state_ != SST_NONE)
+#endif
         {
             /* There are two reasons we can be here:
              * 1) we just got state transfer in request_state_transfer() above;
@@ -1891,6 +2114,8 @@ galera::ReplicatorSMM::process_conf_change(void*                    recv_ctx,
             log_fatal << "Internal error: unexpected next state for "
                       << "non-prim: " << next_state
                       << ". Current state: " << state_() <<". Restart required.";
+            local_monitor_.leave(lo);
+            close();
             abort();
         }
 
@@ -2049,8 +2274,9 @@ void galera::ReplicatorSMM::desync()
             local_monitor_.enter(lo);
             if (state_() != S_DONOR) state_.shift_to(S_DONOR);
             local_monitor_.leave(lo);
+            GU_DBUG_SYNC_WAIT("wsrep_desync_left_local_monitor");
         }
-        else
+        else if (ret != -EAGAIN)
         {
             local_monitor_.self_cancel(lo);
         }
@@ -2166,13 +2392,41 @@ wsrep_status_t galera::ReplicatorSMM::cert(const TrxHandlePtr& trx)
             }
             break;
         case Certification::TEST_FAILED:
+#if GALERA
             if (gu_unlikely(trx->is_toi() && applicable)) // small sanity check
             {
-                // may happen on configuration change
-                log_warn << "Certification failed for TO isolated action: "
-                         << *trx;
-                assert(0);
+                // In some rare scenarios (e.g., when we have multiple
+                // transactions awaiting certification, and the last
+                // node remaining in the cluster becomes PRIMARY due
+                // to the failure of the previous primary node and
+                // the assign_initial_position() was called), sequence
+                // number mismatch occurs on configuration change and
+                // then certification was failed. We cannot move server
+                // forward (with last_seen_seqno < initial_position,
+                // see galera::Certification::do_test() for details)
+                // to avoid potential data loss, and hence will have
+                // to shut it down. Before shutting it down, we need
+                // to mark state as unsafe to trigger SST at next
+                // server restart.
+                log_fatal << "Certification failed for TO isolated action: "
+                          << *trx;
+                st_.mark_unsafe();
+                local_monitor_.leave(lo);
+                abort();
             }
+#endif
+            /* Code above fails to handle TOI (read DDL) transaction
+            as DDL are non-atomic and so can't be rolled back in case of
+            certification failure. But given the TOI flow, certification
+            checks are done well before the real-action starts and so
+            error returned at stage shouldn't cause any rollback for TOI/DDL. */
+            if (gu_unlikely(trx->is_toi() && applicable))
+                log_info << "Certification failed for TO isolated action: "
+                          << *trx;
+            else
+                log_debug << "Certification failed for replicated action: "
+                          << *trx;
+
             local_cert_failures_ += trx->is_local();
             assert(trx->state() == TrxHandle::S_ABORTING);
             retval = applicable ? WSREP_TRX_FAIL : WSREP_TRX_MISSING;
@@ -2285,6 +2539,9 @@ galera::ReplicatorSMM::update_state_uuid (const wsrep_uuid_t& uuid)
 void
 galera::ReplicatorSMM::abort()
 {
+#ifdef GALERA
     gcs_.close();
+#endif
+    close();
     gu_abort();
 }

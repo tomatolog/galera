@@ -18,6 +18,10 @@ static const std::string GCACHE_PARAMS_KEEP_PAGES_SIZE("gcache.keep_pages_size")
 static const std::string GCACHE_DEFAULT_KEEP_PAGES_SIZE("0");
 static const std::string GCACHE_PARAMS_RECOVER    ("gcache.recover");
 static const std::string GCACHE_DEFAULT_RECOVER   ("yes");
+static const std::string GCACHE_PARAMS_KEEP_PAGES_COUNT("gcache.keep_pages_count");
+static const std::string GCACHE_DEFAULT_KEEP_PAGES_COUNT("0");
+static const std::string GCACHE_PARAMS_FREEZE_PURGE_SEQNO("gcache.freeze_purge_at_seqno");
+static const std::string GCACHE_DEFAULT_FREEZE_PURGE_SEQNO("-1");
 
 const std::string&
 gcache::GCache::PARAMS_DIR                 (GCACHE_PARAMS_DIR);
@@ -32,6 +36,8 @@ gcache::GCache::Params::register_params(gu::Config& cfg)
     cfg.add(GCACHE_PARAMS_PAGE_SIZE,       GCACHE_DEFAULT_PAGE_SIZE);
     cfg.add(GCACHE_PARAMS_KEEP_PAGES_SIZE, GCACHE_DEFAULT_KEEP_PAGES_SIZE);
     cfg.add(GCACHE_PARAMS_RECOVER,         GCACHE_DEFAULT_RECOVER);
+    cfg.add(GCACHE_PARAMS_KEEP_PAGES_COUNT,GCACHE_DEFAULT_KEEP_PAGES_COUNT);
+    cfg.add(GCACHE_PARAMS_FREEZE_PURGE_SEQNO, GCACHE_DEFAULT_FREEZE_PURGE_SEQNO);
 }
 
 static const std::string&
@@ -67,7 +73,9 @@ gcache::GCache::Params::Params (gu::Config& cfg, const std::string& data_dir)
     rb_size_  (cfg.get<size_t>(GCACHE_PARAMS_RB_SIZE)),
     page_size_(cfg.get<size_t>(GCACHE_PARAMS_PAGE_SIZE)),
     keep_pages_size_(cfg.get<size_t>(GCACHE_PARAMS_KEEP_PAGES_SIZE)),
-    recover_  (cfg.get<bool>(GCACHE_PARAMS_RECOVER))
+    recover_  (cfg.get<bool>(GCACHE_PARAMS_RECOVER)),
+    keep_pages_count_(cfg.get<size_t>(GCACHE_PARAMS_KEEP_PAGES_COUNT)),
+    freeze_purge_at_seqno_(cfg.get<seqno_t>(GCACHE_PARAMS_FREEZE_PURGE_SEQNO))
 {}
 
 void
@@ -84,6 +92,13 @@ gcache::GCache::param_set (const std::string& key, const std::string& val)
     else if (key == GCACHE_PARAMS_MEM_SIZE)
     {
         size_t tmp_size = gu::Config::from_config<size_t>(val);
+
+        if (tmp_size)
+        {
+            log_warn << GCACHE_PARAMS_MEM_SIZE
+                     << " parameter is buggy and DEPRECATED,"
+                     << " use it with care.";
+        }
 
         gu::Lock lock(mtx);
         /* locking here serves two purposes: ensures atomic setting of config
@@ -126,6 +141,49 @@ gcache::GCache::param_set (const std::string& key, const std::string& val)
         gu_throw_error(EINVAL) << "'" << key
                                << "' has a meaning only on startup.";
     }
+    else if (key == GCACHE_PARAMS_KEEP_PAGES_COUNT)
+    {
+        size_t tmp_size = gu::Config::from_config<size_t>(val);
+
+        gu::Lock lock(mtx);
+        /* locking here serves two purposes: ensures atomic setting of config
+         * and params.ram_size and syncs with malloc() method */
+
+        config.set<size_t>(key, tmp_size);
+        params.keep_pages_count(tmp_size);
+        /* keep last page if PS is the only storage: */
+        ps.set_keep_count(params.keep_pages_count() ?
+                          params.keep_pages_count() :
+                          !((params.mem_size() + params.rb_size()) > 0));
+   }
+   else if (key == GCACHE_PARAMS_FREEZE_PURGE_SEQNO)
+   {
+        seqno_t seqno = -1;
+
+        gu::Lock lock(mtx);
+        /* locking here serves two purposes: ensures atomic setting of config
+         * and params. */
+
+        if (val.compare("now") == 0)
+            seqno = (seqno2ptr.empty() ? 1 : seqno2ptr.begin()->first);
+        else
+        {
+            seqno = gu::Config::from_config<seqno_t>(val);
+
+            if (seqno != SEQNO_ILL && seqno2ptr.find(seqno) == seqno2ptr.end())
+            {
+                log_info << "Freezing gcache purge failed "
+                         << " (seqno not found in gcache)";
+                throw gu::NotFound();
+            }
+        }
+
+        log_info << "Freezing gcache purge at " << seqno;
+
+        config.set<seqno_t>(key, seqno);
+        params.freeze_purge_at_seqno(seqno);
+        rb.set_freeze_purge_at_seqno(seqno);
+   }
     else
     {
         throw gu::NotFound();

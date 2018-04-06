@@ -64,7 +64,10 @@ namespace galera
             wsrep_seqno_t finished();
             void          run();
 
-            wsrep_seqno_t first_seqno() const { return first_seqno_; }
+            wsrep_seqno_t current_seqno()   { return current_seqno_; }
+            wsrep_seqno_t first_seqno()     { return first_seqno_; }
+            wsrep_seqno_t last_seqno()      { return last_seqno_; }
+            bool          running()         { return running_; }
 
         private:
 
@@ -75,8 +78,13 @@ namespace galera
             asio::io_service                              io_service_;
             asio::ip::tcp::acceptor                       acceptor_;
             asio::ssl::context                            ssl_ctx_;
+#ifdef HAVE_PSI_INTERFACE
+            gu::MutexWithPFS                              mutex_;
+            gu::CondWithPFS                               cond_;
+#else
             gu::Mutex                                     mutex_;
             gu::Cond                                      cond_;
+#endif /* HAVE_PSI_INTERFACE */
 
             wsrep_seqno_t         first_seqno_;
             wsrep_seqno_t         last_seqno_;
@@ -147,7 +155,12 @@ namespace galera
             AsyncSenderMap(gcache::GCache& gcache)
                 :
                 senders_(),
+#ifdef HAVE_PSI_INTERFACE
+                monitor_(WSREP_PFS_INSTR_TAG_ASYNC_SENDER_MONITOR_MUTEX,
+                         WSREP_PFS_INSTR_TAG_ASYNC_SENDER_MONITOR_CONDVAR),
+#else
                 monitor_(),
+#endif /* HAVE_PSI_INTERFACE */
                 gcache_(gcache)
             { }
 

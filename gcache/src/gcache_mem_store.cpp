@@ -60,7 +60,7 @@ MemStore::seqno_reset()
     {
         std::set<void*>::iterator tmp(buf); ++buf;
 
-        BufferHeader* const bh(ptr2BH(*tmp));
+        BufferHeader* const bh(BH_cast(*tmp));
 
         if (bh->seqno_g != SEQNO_NONE)
         {
@@ -72,6 +72,11 @@ MemStore::seqno_reset()
             ::free (bh);
         }
     }
+}
+
+size_t MemStore::allocated_pool_size ()
+{
+  return size_;
 }
 
 } /* namespace gcache */

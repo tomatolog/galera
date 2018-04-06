@@ -204,6 +204,12 @@ namespace galera
             return gcs_flush_stats(conn_);
         }
 
+	/* pxc-cluster-view. */
+        void fetch_pfs_info(wsrep_node_info_t* entries, uint32_t size)
+        {
+            return gcs_fetch_pfs_info(conn_, entries, size);
+        }
+
         void get_status(gu::Status& status) const
         {
             gcs_get_status(conn_, status);
@@ -231,6 +237,11 @@ namespace galera
         }
 
         size_t  max_action_size() const { return GCS_MAX_ACT_SIZE; }
+
+        void join_notification()
+        {
+            gcs_join_notification(conn_);
+        }
 
     private:
 
@@ -398,8 +409,15 @@ namespace galera
 
         gu::Config*  gconf_;
         gcache::GCache* gcache_;
+#ifdef HAVE_PSI_INTERFACE
+        gu::MutexWithPFS
+                     mtx_;
+        gu::CondWithPFS
+                     cond_;
+#else
         gu::Mutex    mtx_;
         gu::Cond     cond_;
+#endif /* HAVE_PSI_INTERFACE */
         gcs_seqno_t  global_seqno_;
         gcs_seqno_t  local_seqno_;
         gu::UUID     uuid_;

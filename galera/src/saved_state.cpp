@@ -26,7 +26,11 @@ SavedState::SavedState  (const std::string& file) :
     safe_to_bootstrap_(true),
     unsafe_       (0),
     corrupt_      (false),
+#ifdef HAVE_PSI_INTERFACE
+    mtx_          (WSREP_PFS_INSTR_TAG_SAVED_STATE_MUTEX),
+#else
     mtx_          (),
+#endif /* HAVE_PSI_INTERFACE */
     written_uuid_ (uuid_),
     current_len_  (0),
     total_marks_  (0),
@@ -42,6 +46,7 @@ SavedState::SavedState  (const std::string& file) :
     if (ifs.fail())
     {
         log_warn << "Could not open state file for reading: '" << file << '\'';
+        log_warn << "No persistent state found. Bootstraping with default state";
     }
 
     fs_ = fopen(file.c_str(), "a");
@@ -177,14 +182,18 @@ SavedState::set (const wsrep_uuid_t& u, wsrep_seqno_t s, bool safe_to_bootstrap)
 
     if (corrupt_) return;
 
-    uuid_ = u;
-    seqno_ = s;
-    safe_to_bootstrap_ = safe_to_bootstrap;
+    // Write new state if uuid or seqno was changed:
+    if (uuid_ != u || seqno_ != s || safe_to_bootstrap_ != safe_to_bootstrap)
+    {
+       uuid_ = u;
+       seqno_ = s;
+       safe_to_bootstrap_ = safe_to_bootstrap;
 
-    if (0 == unsafe_())
-        write_and_flush (u, s, safe_to_bootstrap);
-    else
-        log_debug << "Not writing state: unsafe counter is " << unsafe_();
+       if (0 == unsafe_())
+          write_and_flush (u, s, safe_to_bootstrap);
+       else
+          log_debug << "Not writing state: unsafe counter is " << unsafe_();
+    }
 }
 
 /* the goal of unsafe_, written_uuid_, current_len_ below is

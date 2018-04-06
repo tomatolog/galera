@@ -73,6 +73,7 @@ namespace galera
                                          wsrep_trx_meta_t* meta) = 0;
         virtual wsrep_status_t pre_commit(TrxHandlePtr& trx,
                                           wsrep_trx_meta_t* meta) =0;
+        virtual wsrep_status_t interim_commit(TrxHandle* trx) = 0;
         virtual wsrep_status_t post_rollback(TrxHandle* trx) = 0;
         virtual wsrep_status_t release_commit(TrxHandle* trx) = 0;
         virtual wsrep_status_t release_rollback(TrxHandle* trx) = 0;
@@ -116,8 +117,9 @@ namespace galera
         virtual void process_join(wsrep_seqno_t seqno, wsrep_seqno_t seqno_l) =0;
         virtual void process_sync(wsrep_seqno_t seqno_l) = 0;
 
-        virtual const struct wsrep_stats_var* stats_get() const = 0;
+        virtual const struct wsrep_stats_var* stats_get() = 0;
         virtual void                          stats_reset() = 0;
+        virtual void fetch_pfs_info(wsrep_node_info_t* nodes, uint32_t size) = 0;
         // static void stats_free(struct wsrep_stats_var*) must be declared in
         // the child class
 

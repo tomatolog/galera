@@ -48,7 +48,7 @@ namespace galera
             TEST_FAILED
         } TestResult;
 
-        Certification(gu::Config& conf, ServiceThd& thd);
+        Certification(gu::Config& conf, ServiceThd& thd, gcache::GCache& gcache);
         ~Certification();
 
         void assign_initial_position(const gu::GTID& gtid, int version);
@@ -101,6 +101,11 @@ namespace galera
             deps_dist_ = 0;
             n_certified_ = 0;
             index_size_ = 0;
+        }
+
+        size_t bucket_count ()
+        {
+            return cert_index_ng_.bucket_count();
         }
 
         void set_log_conflicts(const std::string& str);
@@ -186,7 +191,13 @@ namespace galera
         CertIndexNG   cert_index_ng_;
         DepsSet       deps_set_;
         ServiceThd&   service_thd_;
+        gcache::GCache& gcache_;
+#ifdef HAVE_PSI_INTERFACE
+        gu::MutexWithPFS
+                      mutex_;
+#else
         gu::Mutex     mutex_;
+#endif /* HAVE_PSI_INTERFACE */
         size_t        trx_size_warn_count_;
         wsrep_seqno_t initial_position_;
         wsrep_seqno_t position_;
@@ -194,7 +205,12 @@ namespace galera
         wsrep_seqno_t last_pa_unsafe_;
         wsrep_seqno_t last_preordered_seqno_;
         wsrep_trx_id_t last_preordered_id_;
+#ifdef HAVE_PSI_INTERFACE
+        gu::MutexWithPFS
+                      stats_mutex_;
+#else
         gu::Mutex     stats_mutex_;
+#endif /* HAVE_PSI_INTERFACE */
         size_t        n_certified_;
         wsrep_seqno_t deps_dist_;
         wsrep_seqno_t cert_interval_;

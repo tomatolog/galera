@@ -49,7 +49,11 @@ namespace gcache
                             gu::UUID&          gid,
                             bool const         recover)
     :
+#ifdef HAVE_PSI_INTERFACE
+        fd_        (name, WSREP_PFS_INSTR_TAG_RINGBUFFER_FILE, check_size(size)),
+#else
         fd_        (name, check_size(size)),
+#endif /* HAVE_PSI_INTERFACE */
         mmap_      (fd_),
         preamble_  (static_cast<char*>(mmap_.ptr)),
         header_    (reinterpret_cast<int64_t*>(preamble_ + PREAMBLE_LEN)),
@@ -59,6 +63,9 @@ namespace gcache
         next_      (first_),
         seqno2ptr_ (seqno2ptr),
         gid_       (gid),
+        max_used_  (first_ - static_cast<uint8_t*>(mmap_.ptr) +
+                    sizeof(BufferHeader)),
+        freeze_purge_at_seqno_(SEQNO_ILL),
         size_cache_(end_ - start_ - sizeof(BufferHeader)),
         size_free_ (size_cache_),
         size_used_ (0),
@@ -99,6 +106,10 @@ namespace gcache
     {
         for (seqno2ptr_t::iterator i(i_begin); i != i_end;)
         {
+            /* Skip purge from this seqno onwards. */
+            if (skip_purge(i->first))
+                return false;
+
             seqno2ptr_t::iterator j(i); ++i;
             BufferHeader* const bh (ptr2BH (j->second));
 
@@ -170,9 +181,14 @@ namespace gcache
 
         assert (ret <= first_);
 
-        if (size_t(first_ - ret) >= size_next) { assert(size_free_ >= size); }
+        /* Compare with difference to avoid integer overflow: */
+        if (static_cast<size_t>(first_ - ret) >= size_next)
+        {
+            assert(size_free_ >= size);
+        }
 
-        while (size_t(first_ - ret) < size_next) {
+        while (static_cast<size_t>(first_ - ret) < size_next)
+        {
             // try to discard first buffer to get more space
             BufferHeader* bh = BH_cast(first_);
 
@@ -202,7 +218,8 @@ namespace gcache
                 first_ = start_;
                 assert_size_free();
 
-                if (size_t(end_ - ret) >= size_next)
+                /* Compare with difference to avoid integer overflow: */
+                if (static_cast<size_t>(end_ - ret) >= size_next)
                 {
                     assert(size_free_ >= size);
                     size_trail_ = 0;
@@ -221,7 +238,9 @@ namespace gcache
         assert (ret <= first_);
 
 #ifndef NDEBUG
-        if (size_t(first_ - ret) < size_next) {
+        /* Compare with difference to avoid integer overflow: */
+        if (static_cast<size_t>(first_ - ret) < size_next)
+        {
             log_fatal << "Assertion ((first - ret) >= size_next) failed: "
                       << std::endl
                       << "first offt = " << (first_ - start_) << std::endl
@@ -247,6 +266,15 @@ namespace gcache
         bh->store   = BUFFER_IN_RB;
         bh->ctx     = reinterpret_cast<BH_ctx_t>(this);
         next_ = ret + size;
+
+        size_t max_used=
+            next_ - static_cast<uint8_t*>(mmap_.ptr) + sizeof(BufferHeader);
+
+        if (max_used > max_used_)
+        {
+            max_used_ = max_used;
+        }
+
         assert((uintptr_t(next_) % MemOps::ALIGNMENT) == 0);
         assert (next_ + sizeof(BufferHeader) <= end_);
         BH_clear (BH_cast(next_));
@@ -513,6 +541,11 @@ namespace gcache
 
         if (next_ > first_ && first_ > start_) BH_clear(BH_cast(start_));
         /* this is needed to avoid rescanning from start_ on recovery */
+    }
+
+    size_t RingBuffer::allocated_pool_size ()
+    {
+       return max_used_;
     }
 
     void
@@ -1015,6 +1048,10 @@ namespace gcache
             else assert(size_trail_ >= sizeof(BufferHeader));
 
             estimate_space();
+            /* On graceful shutdown all the active buffers are released
+            so on recovery size_used_ = 0.
+            size_cache_ = size_free_ + size_used_ + releasebutnotdiscarded */
+            size_used_ = 0;
 
             /* now discard all the locked-in buffers (see seqno_reset()) */
             gu::Progress<size_t> progress(

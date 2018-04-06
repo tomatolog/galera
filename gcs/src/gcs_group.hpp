@@ -250,7 +250,7 @@ gcs_group_find_donor(const gcs_group_t* group,
                      int const str_version,
                      int const joiner_idx,
                      const char* const donor_string, int const donor_len,
-                     const gu::GTID& ist_gtid);
+                     const gu::GTID& ist_gtid, const bool ist_only);
 
 extern int
 gcs_group_param_set(gcs_group_t& group,
@@ -258,5 +258,10 @@ gcs_group_param_set(gcs_group_t& group,
 
 extern void
 gcs_group_get_status(const gcs_group_t* group, gu::Status& status);
+
+extern void
+gcs_group_fetch_pfs_info(const gcs_group_t* group,
+                       wsrep_node_info_t* entries,
+                       uint32_t size);
 
 #endif /* _gcs_group_h_ */

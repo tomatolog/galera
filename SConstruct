@@ -74,6 +74,7 @@ Commandline Options:
     extra_sysroot=path  a path to extra development environment (Fink, Homebrew, MacPorts, MinGW)
     version=X.X.X       galera version
     bits=[32bit|64bit]
+    psi=[0|1]           instrument galera mutexes/cond-vars using mysql psi (only with pxc-5.7+)
 ''')
 # bpostatic option added on Percona request
 
@@ -84,7 +85,7 @@ Commandline Options:
 build_target = 'all'
 
 # Optimization level
-opt_flags    = ' -g -O3 -DNDEBUG'
+opt_flags    = ' -g -O3 -fno-omit-frame-pointer -DNDEBUG'
 
 # Architecture (defaults to build host type)
 compile_arch = ''
@@ -109,7 +110,7 @@ if debug_lvl >= 0 and debug_lvl < 3:
     opt_flags = ' -g -O%d -fno-inline' % debug_lvl
     dbug = True
 elif debug_lvl == 3:
-    opt_flags = ' -g -O3'
+    opt_flags = ' -g -O3 -fno-omit-frame-pointer'
 
 if dbug:
     opt_flags = opt_flags + ' -DGU_DBUG_ON'
@@ -148,17 +149,13 @@ tests      = int(ARGUMENTS.get('tests', 1))
 deterministic_tests = int(ARGUMENTS.get('deterministic_tests', 0))
 strict_build_flags = int(ARGUMENTS.get('strict_build_flags', 0))
 
+# parse psi flag option
+psi        = int(ARGUMENTS.get('psi', 0))
+if psi:
+    opt_flags = opt_flags + ' -DHAVE_PSI_INTERFACE'
 
-GALERA_VER = ARGUMENTS.get('version', '4.dev')
+GALERA_VER = ARGUMENTS.get('version', '4.1')
 GALERA_REV = ARGUMENTS.get('revno', 'XXXX')
-
-# Attempt to read from file if not given
-if GALERA_REV == "XXXX" and os.path.isfile("GALERA_REVISION"):
-    f = open("GALERA_REVISION", "r")
-    try:
-        GALERA_REV = f.readline().rstrip("\n")
-    finally:
-        f.close()
 
 # export to any module that might have use of those
 Export('GALERA_VER', 'GALERA_REV')
@@ -234,7 +231,7 @@ if sysname == 'darwin' and extra_sysroot == '':
         extra_sysroot = '/sw'
 if extra_sysroot != '':
     env.Append(LIBPATH = [extra_sysroot + '/lib'])
-    env.Append(CPPFLAGS = ' -I' + extra_sysroot + '/include')
+    env.Append(CCFLAGS = ' -I' + extra_sysroot + '/include')
 
 # print env.Dump()
 

@@ -101,7 +101,7 @@ namespace gu
     void
     MMap::sync () const
     {
-        log_info << "Flushing memory map to disk...";
+        log_debug << "Flushing memory map to disk...";
         sync(ptr, size);
     }
 

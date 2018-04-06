@@ -29,6 +29,8 @@
 #include <errno.h>
 #include <assert.h>
 
+#include "gu_debug_sync.hpp"
+
 const char* gcs_node_state_to_str (gcs_node_state_t state)
 {
     static const char* str[GCS_NODE_STATE_MAX + 1] =
@@ -118,6 +120,7 @@ struct gcs_conn
     gu::UUID group_uuid;
     long  my_idx;
     long  memb_num;
+    long  non_arb_memb_count;   /* count of non-arb members in cluster */
     char* my_name;
     char* channel;
     char* socket;
@@ -190,6 +193,10 @@ struct gcs_conn
     bool         need_to_join;
     gu::GTID     join_gtid;
     int          join_code;
+    void        join_notification()
+    {
+        need_to_join = true;
+    }
 
     /* sync control */
     bool         sync_sent_;
@@ -316,9 +323,17 @@ gcs_create (gu_config_t* const conf, gcache_t* const gcache,
 
     {
         size_t recv_q_len = gu_avphys_bytes() / sizeof(struct gcs_recv_act) / 4;
-
-        gu_debug ("Requesting recv queue len: %zu", recv_q_len);
-        conn->recv_q = gu_fifo_create (recv_q_len, sizeof(struct gcs_recv_act));
+        if (recv_q_len == 0)
+        {
+            gu_error ("Requesting recv queue len: %zu", recv_q_len);
+            gu_error ("Available system memory is running low: %zu",
+                      gu_avphys_bytes());
+        }
+        else
+        {
+            gu_debug ("Requesting recv queue len: %zu", recv_q_len);
+            conn->recv_q = gu_fifo_create (recv_q_len, sizeof(struct gcs_recv_act));
+        }
     }
     if (!conn->recv_q) {
         gu_error ("Failed to create recv_q.");
@@ -784,6 +799,8 @@ _release_sst_flow_control (gcs_conn_t* conn)
         ret = gu_mutex_lock(&conn->fc_lock);
         if (!ret) {
             ret = gcs_fc_cont_end(conn);
+            if (ret >= 0)
+                gu_info("SST leaving flow control");
         }
         else {
             gu_fatal("failed to lock FC mutex");
@@ -845,10 +862,15 @@ _set_fc_limits (gcs_conn_t* conn)
     /* Killing two birds with one stone: flat FC profile for master-slave setups
      * plus #440: giving single node some slack at some math correctness exp.*/
     double const fn
-        (conn->params.fc_master_slave ? 1.0 : sqrt(double(conn->memb_num)));
+        (conn->params.fc_master_slave ? 1.0 : sqrt(double(conn->non_arb_memb_count)));
 
     conn->upper_limit = conn->params.fc_base_limit * fn + .5;
     conn->lower_limit = conn->upper_limit * conn->params.fc_resume_factor + .5;
+
+    /* The upper/lower limits cannot exceed the number of items in the
+     * receive queue, so bound them by the max length. */
+    conn->upper_limit = std::min(conn->upper_limit, gu_fifo_max_length(conn->recv_q));
+    conn->lower_limit = std::min(conn->lower_limit, gu_fifo_max_length(conn->recv_q));
 
     gu_info ("Flow-control interval: [%ld, %ld]",
              conn->lower_limit, conn->upper_limit);
@@ -933,6 +955,21 @@ gcs_handle_act_conf (gcs_conn_t* conn, const void* action)
             conn->stop_count  = 0;
             conn->conf_id     = conf->conf_id;
             conn->memb_num    = conf->memb_num;
+
+            // Count the number of non-arb members, this will be
+            // used for the fc_limit calculations
+            long    non_arb_memb_count = 0;
+            const char *  ptr = &conf->data[0];
+            for (long i=0; i < conf->memb_num; i++)
+            {
+                ptr += strlen(ptr) + 1;     // move past the ID
+                ptr += strlen(ptr) + 1;     // move past the name
+                if (*ptr)                   // 0-length IP addr indicates an ARB
+                    non_arb_memb_count += 1;
+                ptr += strlen(ptr) + 1;     // move past the IP address
+                ptr += sizeof(gcs_seqno_t); // move past the gcs_seqno_t
+            }
+            conn->non_arb_memb_count = non_arb_memb_count;
 
             _set_fc_limits (conn);
 
@@ -1171,6 +1208,7 @@ _check_recv_queue_growth (gcs_conn_t* conn, ssize_t size)
         ret = gu_mutex_lock(&conn->fc_lock);
         if (!ret) {
             ret = gcs_fc_stop_end(conn);
+            gu_info("SST entering flow control");
         }
         else {
             gu_fatal("failed to lock FC mutex");
@@ -1270,6 +1308,14 @@ _close(gcs_conn_t* conn, bool join_recv_thread)
 static void *gcs_recv_thread (void *arg)
 {
     gcs_conn_t* conn = (gcs_conn_t*)arg;
+
+#ifdef HAVE_PSI_INTERFACE
+    pfs_instr_callback(WSREP_PFS_INSTR_TYPE_THREAD,
+                       WSREP_PFS_INSTR_OPS_INIT,
+                       WSREP_PFS_INSTR_TAG_RECEIVER_THREAD,
+                       NULL, NULL, NULL);
+#endif /* HAVE_PSI_INTERFACE */
+
     ssize_t     ret  = -ECONNABORTED;
 
     // To avoid race between gcs_open() and the following state check in while()
@@ -1425,9 +1471,20 @@ static void *gcs_recv_thread (void *arg)
     {
         /* In case of error call _close() to release repl_q waiters. */
         (void)_close(conn, false);
+        /* We must set connection state to 'closed' to avoid the race
+           condition between gcs_recv_thread() and gcs_recv(), which
+           could lead to assertion in gcs_recv: */
         gcs_shift_state (conn, GCS_CONN_CLOSED);
     }
     gu_info ("RECV thread exiting %d: %s", ret, strerror(-ret));
+
+#ifdef HAVE_PSI_INTERFACE
+    pfs_instr_callback(WSREP_PFS_INSTR_TYPE_THREAD,
+                       WSREP_PFS_INSTR_OPS_DESTROY,
+                       WSREP_PFS_INSTR_TAG_RECEIVER_THREAD,
+                       NULL, NULL, NULL);
+#endif /* HAVE_PSI_INTERFACE */
+
     return NULL;
 }
 
@@ -1459,7 +1516,7 @@ long gcs_open (gcs_conn_t* conn, const char* channel, const char* url,
                 gcs_fifo_lite_open(conn->repl_q);
                 gu_fifo_open(conn->recv_q);
                 gcs_shift_state (conn, GCS_CONN_OPEN);
-                gu_info ("Opened channel '%s'", channel);
+                gu_debug ("Opened channel '%s'", channel);
                 conn->inner_close_count = 0;
                 conn->outer_close_count = 0;
                 goto out;
@@ -1514,6 +1571,9 @@ long gcs_close (gcs_conn_t *conn)
     }
     /* recv_thread() is supposed to set state to CLOSED when exiting */
     assert (GCS_CONN_CLOSED == conn->state);
+#ifdef GU_DBUG_ON
+    GU_DBUG_SYNC_WAIT("gcs_close_before_exit");
+#endif
     return ret;
 }
 
@@ -2031,11 +2091,30 @@ gcs_set_last_applied (gcs_conn_t* conn, const gu::GTID& gtid)
 long
 gcs_join (gcs_conn_t* conn, const gu::GTID& gtid, int const code)
 {
-    conn->join_gtid    = gtid;
-    conn->join_code    = code;
-    conn->need_to_join = true;
+    // Even when node is evicted from the cluster in middle of SST,
+    // the SST may completes normally. After this, the node calls
+    // the gcs_join function and tries to join the cluster. However,
+    // this is impossible, because the node is already evicted.
+    // Therefore, the _join() function (which called from gcs_join)
+    // fails. Then node does IST (which also fails), after/during
+    // which it is aborted. To fix this, we should avoid joining
+    // the cluster through gcs_join function if node is evicted.
+    // To do this, we should check the current connection state
+    // in the gcs_join() function to return from it immediately
+    // if the node's communication channel was closed:
 
-    return _join (conn, gtid, code);
+    if (conn->state < GCS_CONN_CLOSED)
+    {
+        conn->join_gtid    = gtid;
+        conn->join_code    = code;
+        conn->need_to_join = true;
+
+        return _join (conn, gtid, code);
+    }
+    else
+    {
+        return GCS_CLOSED_ERROR;
+    }
 }
 
 gcs_seqno_t gcs_local_sequence(gcs_conn_t* conn)
@@ -2065,6 +2144,11 @@ gcs_get_stats (gcs_conn_t* conn, struct gcs_stats* stats)
     stats->fc_ssent    = conn->stats_fc_stop_sent;
     stats->fc_csent    = conn->stats_fc_cont_sent;
     stats->fc_received = conn->stats_fc_received;
+
+    stats->fc_lower_limit = conn->lower_limit;
+    stats->fc_upper_limit = conn->upper_limit;
+
+    stats->fc_status = conn->stop_sent() > 0 ? 1 : 0;
 }
 
 void
@@ -2077,10 +2161,22 @@ gcs_flush_stats(gcs_conn_t* conn)
     conn->stats_fc_received  = 0;
 }
 
+extern void
+gcs_fetch_pfs_info (gcs_conn_t* conn, wsrep_node_info_t* entries, uint32_t size)
+{
+    if (conn->state < GCS_CONN_CLOSED)
+    {
+        gcs_core_fetch_pfs_info(conn->core, entries, size);
+    }
+}
+
 void gcs_get_status(gcs_conn_t* conn, gu::Status& status)
 {
     if (conn->state < GCS_CONN_CLOSED)
     {
+#ifdef GU_DBUG_ON
+        GU_DBUG_SYNC_WAIT("gcs_get_status");
+#endif
         gcs_core_get_status(conn->core, status);
     }
 }
@@ -2328,4 +2424,10 @@ const char* gcs_param_get (gcs_conn_t* conn, const char* key)
     gu_warn ("Not implemented: %s", __FUNCTION__);
 
     return NULL;
+}
+
+
+void gcs_join_notification(gcs_conn_t* conn)
+{
+     conn->need_to_join = true;
 }

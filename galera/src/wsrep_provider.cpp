@@ -460,7 +460,8 @@ wsrep_status_t galera_assign_read_view(wsrep_t*           const  gh,
 
 
 extern "C"
-wsrep_status_t galera_pre_commit(wsrep_t*           const gh,
+wsrep_status_t galera_replicate_pre_commit(
+                                 wsrep_t*           const gh,
                                  wsrep_conn_id_t    const conn_id,
                                  wsrep_ws_handle_t* const trx_handle,
                                  uint32_t           const flags,
@@ -573,6 +574,243 @@ wsrep_status_t galera_pre_commit(wsrep_t*           const gh,
 
     return retval;
 }
+
+
+extern "C"
+wsrep_status_t galera_replicate(wsrep_t*           const gh,
+                                wsrep_conn_id_t    const conn_id,
+                                wsrep_ws_handle_t* const trx_handle,
+                                uint32_t           const flags,
+                                wsrep_trx_meta_t*  const meta)
+{
+    assert(gh != 0);
+    assert(gh->ctx != 0);
+
+    REPL_CLASS * repl(reinterpret_cast< REPL_CLASS * >(gh->ctx));
+
+    TrxHandle* trx(get_local_trx(repl, trx_handle, /*rbr_data != 0*/ false));
+
+    // TRX_START and ROLLBACK flags should not be set together
+    assert((flags & (WSREP_FLAG_TRX_START | WSREP_FLAG_ROLLBACK))
+           != (WSREP_FLAG_TRX_START | WSREP_FLAG_ROLLBACK));
+
+    if (gu_unlikely(trx == 0))
+    {
+        if (meta != 0)
+        {
+            meta->gtid       = WSREP_GTID_UNDEFINED;
+            meta->depends_on = WSREP_SEQNO_UNDEFINED;
+            meta->stid.node  = repl->source_id();
+            meta->stid.trx   = -1;
+        }
+        // no data to replicate
+        return WSREP_OK;
+    }
+
+    assert(trx->trx_id() != uint64_t(-1));
+
+    if (meta != 0)
+    {
+        meta->gtid       = WSREP_GTID_UNDEFINED;
+        meta->depends_on = WSREP_SEQNO_UNDEFINED;
+        meta->stid.node  = trx->source_id();
+        meta->stid.trx   = trx->trx_id();
+    }
+
+    wsrep_status_t retval;
+
+    try
+    {
+        TrxHandleLock lock(*trx);
+
+        trx->set_conn_id(conn_id);
+
+        trx->set_flags(trx->flags() |
+                       TrxHandle::wsrep_flags_to_trx_flags(flags));
+
+        retval = repl->replicate(trx->get_shared_ptr(), meta);
+
+        if (meta)
+        {
+            if (trx->write_set_in().size() > 0)
+            {
+                assert(meta->gtid.seqno > 0);
+                assert(meta->gtid.seqno == trx->global_seqno());
+                assert(meta->depends_on == trx->depends_seqno());
+            }
+            else
+            {
+                assert(meta->gtid.seqno == WSREP_SEQNO_UNDEFINED);
+                assert(meta->depends_on == WSREP_SEQNO_UNDEFINED);
+            }
+        }
+
+        assert(trx->trx_id() == meta->stid.trx);
+        assert(!(retval == WSREP_OK || retval == WSREP_BF_ABORT) ||
+               (trx->global_seqno() > 0));
+
+    }
+    catch (gu::Exception& e)
+    {
+        log_error << e.what();
+
+        if (e.get_errno() == EMSGSIZE)
+            retval = WSREP_SIZE_EXCEEDED;
+        else
+            retval = WSREP_NODE_FAIL;
+    }
+    catch (std::exception& e)
+    {
+        log_error << e.what();
+        retval = WSREP_NODE_FAIL;
+    }
+    catch (...)
+    {
+        log_fatal << "non-standard exception";
+        retval = WSREP_FATAL;
+    }
+
+    return retval;
+}
+
+
+extern "C"
+wsrep_status_t galera_pre_commit(wsrep_t*           const gh,
+                                 wsrep_conn_id_t    const conn_id,
+                                 wsrep_ws_handle_t* const trx_handle,
+                                 uint32_t           const flags,
+                                 wsrep_trx_meta_t*  const meta)
+{
+    assert(gh != 0);
+    assert(gh->ctx != 0);
+
+    REPL_CLASS * repl(reinterpret_cast< REPL_CLASS * >(gh->ctx));
+
+    TrxHandle* trx(get_local_trx(repl, trx_handle, /*rbr_data != 0*/ false));
+
+    assert(trx != 0);
+
+    wsrep_status_t retval;
+
+    try
+    {
+        TrxHandleLock lock(*trx);
+
+        assert(trx->last_seen_seqno() >= 0);
+        retval = repl->pre_commit(trx->get_shared_ptr(), meta);
+        if (meta) assert(meta->depends_on >= 0 || retval != WSREP_OK);
+
+        assert(retval == WSREP_OK ||       // success
+               retval == WSREP_TRX_FAIL || // cert failure
+               retval == WSREP_BF_ABORT || // BF abort
+               retval == WSREP_CONN_FAIL); // not in joined/synced state
+    }
+    catch (gu::Exception& e)
+    {
+        log_error << e.what();
+
+        if (e.get_errno() == EMSGSIZE)
+            retval = WSREP_SIZE_EXCEEDED;
+        else
+            retval = WSREP_NODE_FAIL;
+    }
+    catch (std::exception& e)
+    {
+        log_error << e.what();
+        retval = WSREP_NODE_FAIL;
+    }
+    catch (...)
+    {
+        log_fatal << "non-standard exception";
+        retval = WSREP_FATAL;
+    }
+
+    return retval;
+}
+
+
+extern "C"
+wsrep_status_t galera_interim_commit (wsrep_t*            gh,
+                                      wsrep_ws_handle_t*  trx_handle)
+{
+    assert(gh != 0);
+    assert(gh->ctx != 0);
+
+    REPL_CLASS * repl(reinterpret_cast< REPL_CLASS * >(gh->ctx));
+
+    TrxHandle* trx(get_local_trx(repl, trx_handle, /*rbr_data != 0*/ false));
+
+    assert(trx != 0);
+
+    wsrep_status_t retval;
+
+    try
+    {
+        TrxHandleLock lock(*trx);
+
+        assert(trx->last_seen_seqno() >= 0);
+        retval = repl->interim_commit(trx);
+    }
+    catch (gu::Exception& e)
+    {
+        log_error << e.what();
+
+        if (e.get_errno() == EMSGSIZE)
+            retval = WSREP_SIZE_EXCEEDED;
+        else
+            retval = WSREP_NODE_FAIL;
+    }
+    catch (std::exception& e)
+    {
+        log_error << e.what();
+        retval = WSREP_NODE_FAIL;
+    }
+    catch (...)
+    {
+        log_fatal << "non-standard exception";
+        retval = WSREP_FATAL;
+    }
+
+
+    return retval;
+}
+
+
+extern "C"
+wsrep_status_t galera_applier_pre_commit(wsrep_t*   gh,
+                                         void*      trx_handle)
+{
+    assert(gh != 0);
+    assert(gh->ctx != 0);
+
+    REPL_CLASS * repl(reinterpret_cast< REPL_CLASS * >(gh->ctx));
+    return repl->applier_pre_commit(trx_handle);
+}
+
+
+extern "C"
+wsrep_status_t galera_applier_interim_commit(wsrep_t*  gh,
+                                             void*     trx_handle)
+{
+    assert(gh != 0);
+    assert(gh->ctx != 0);
+
+    REPL_CLASS * repl(reinterpret_cast< REPL_CLASS * >(gh->ctx));
+    return repl->applier_interim_commit(trx_handle);
+}
+
+
+extern "C"
+wsrep_status_t galera_applier_post_commit(wsrep_t*  gh,
+                                          void*     trx_handle)
+{
+    assert(gh != 0);
+    assert(gh->ctx != 0);
+
+    REPL_CLASS * repl(reinterpret_cast< REPL_CLASS * >(gh->ctx));
+    return repl->applier_post_commit(trx_handle);
+}
+
 
 
 extern "C"
@@ -1160,6 +1398,16 @@ void galera_stats_reset (wsrep_t* gh)
     repl->stats_reset();
 }
 
+extern "C"
+void galera_fetch_pfs_info (wsrep_t* gh, wsrep_node_info_t* nodes, uint32_t size)
+{
+    assert(gh != 0);
+    assert(gh->ctx != 0);
+
+    REPL_CLASS* repl(reinterpret_cast< REPL_CLASS * >(gh->ctx));
+
+    repl->fetch_pfs_info(nodes, size);
+}
 
 extern "C"
 wsrep_seqno_t galera_pause (wsrep_t* gh)
@@ -1290,7 +1538,13 @@ static wsrep_t galera_str = {
     &galera_disconnect,
     &galera_recv,
     &galera_assign_read_view,
+    &galera_replicate_pre_commit,
+    &galera_replicate,
     &galera_pre_commit,
+    &galera_interim_commit,
+    &galera_applier_pre_commit,
+    &galera_applier_interim_commit,
+    &galera_applier_post_commit,
     &galera_post_rollback,
     &galera_release,
     &galera_replay_trx,
@@ -1311,6 +1565,7 @@ static wsrep_t galera_str = {
     &galera_stats_get,
     &galera_stats_free,
     &galera_stats_reset,
+    &galera_fetch_pfs_info,
     &galera_pause,
     &galera_resume,
     &galera_desync,

@@ -43,6 +43,7 @@ namespace galera
             SST_NONE,
             SST_WAIT,
             SST_REQ_FAILED,
+            SST_CANCELED,
             SST_FAILED
         } SstState;
 
@@ -100,6 +101,7 @@ namespace galera
         void           abort_trx(TrxHandle* trx);
         wsrep_status_t pre_commit(TrxHandlePtr& trx, wsrep_trx_meta_t*);
         wsrep_status_t post_rollback(TrxHandle* trx);
+        wsrep_status_t interim_commit(TrxHandle* trx);
         wsrep_status_t release_commit(TrxHandle* trx);
         wsrep_status_t release_rollback(TrxHandle* trx);
         wsrep_status_t replay_trx(TrxHandlePtr& trx, void* replay_ctx);
@@ -108,6 +110,37 @@ namespace galera
                                  int           tout,
                                  wsrep_gtid_t* gtid);
         wsrep_status_t last_committed_id(wsrep_gtid_t* gtid);
+
+        wsrep_status_t applier_pre_commit(void* trx_handle)
+        {
+            TrxHandle* trx = reinterpret_cast<TrxHandle*>(trx_handle);
+            CommitOrder co(*trx, co_mode_);
+            commit_monitor_.enter(co);
+            return WSREP_OK;
+        }
+
+        wsrep_status_t applier_interim_commit(void* trx_handle)
+        {
+            TrxHandle* trx = reinterpret_cast<TrxHandle*>(trx_handle);
+            CommitOrder co(*trx, co_mode_);
+            commit_monitor_.leave(co);
+            GU_DBUG_SYNC_WAIT("sync.applier_interim_commit.after_commit_leave");
+            trx->mark_interim_committed(true);
+            return WSREP_OK;
+        }
+
+        wsrep_status_t applier_post_commit(void* trx_handle)
+        {
+            TrxHandle* trx = reinterpret_cast<TrxHandle*>(trx_handle);
+            if (!(trx->is_interim_committed()))
+            {
+                CommitOrder co(*trx, co_mode_);
+                commit_monitor_.leave(co);
+                GU_DBUG_SYNC_WAIT("sync.applier_post_commit.after_commit_leave");
+            }
+            trx->mark_interim_committed(false);
+            return WSREP_OK;
+        }
 
         wsrep_status_t to_isolation_begin(TrxHandlePtr& trx, wsrep_trx_meta_t*);
         wsrep_status_t to_isolation_end(TrxHandlePtr& trx, const wsrep_buf_t* err);
@@ -134,9 +167,11 @@ namespace galera
         void process_join(wsrep_seqno_t seqno, wsrep_seqno_t seqno_l);
         void process_sync(wsrep_seqno_t seqno_l);
 
-        const struct wsrep_stats_var* stats_get()  const;
+        const struct wsrep_stats_var* stats_get();
         void                          stats_reset();
         void                          stats_free(struct wsrep_stats_var*);
+        virtual void                  fetch_pfs_info(wsrep_node_info_t* nodes,
+                                                     uint32_t           size);
 
         /*! @throws NotFound */
         void           set_param (const std::string& key,
@@ -361,7 +396,11 @@ namespace galera
             }
 
 #ifdef GU_DBUG_ON
+#ifdef HAVE_PSI_INTERFACE
+            void debug_sync(gu::MutexWithPFS& mutex)
+#else
             void debug_sync(gu::Mutex& mutex)
+#endif /* HAVE_PSI_INTERFACE */
             {
                 if (trx_ != false)
                 {
@@ -417,7 +456,11 @@ namespace galera
             }
 
 #ifdef GU_DBUG_ON
+#ifdef HAVE_PSI_INTERFACE
+            void debug_sync(gu::MutexWithPFS& mutex)
+#else
             void debug_sync(gu::Mutex& mutex)
+#endif /* HAVE_PSI_INTERFACE */
             {
                 if (is_local_)
                 {
@@ -496,17 +539,24 @@ namespace galera
                         << "commit order condition called in bypass mode";
                 case OOOC:
                     return true;
+                    // fall through
                 case LOCAL_OOOC:
                     return is_local_;
                     // in case of remote trx fall through
+                    // fall through
                 case NO_OOOC:
                     return (last_left + 1 == global_seqno_);
                 }
                 gu_throw_fatal << "invalid commit mode value " << mode_;
+                return false;
             }
 
 #ifdef GU_DBUG_ON
+#ifdef HAVE_PSI_INTERFACE
+            void debug_sync(gu::MutexWithPFS& mutex)
+#else
             void debug_sync(gu::Mutex& mutex)
+#endif /* HAVE_PSI_INTERFACE */
             {
                 if (is_local_ == true)
                 {
@@ -577,6 +627,30 @@ namespace galera
             State to_;
         };
 
+        // state action
+        class StateAction
+        {
+        public:
+            StateAction () :
+                repl_(),
+                f_()
+            {
+            }
+
+            StateAction (ReplicatorSMM * const repl,
+                         void (ReplicatorSMM::* f) ()) :
+                repl_(repl),
+                f_(f)
+            {
+            }
+            void operator () ()
+            {
+                (repl_->*f_)();
+            }
+        private:
+            ReplicatorSMM* repl_;
+            void (ReplicatorSMM::* f_) ();
+        };
 
         void build_stats_vars (std::vector<struct wsrep_stats_var>& stats);
 
@@ -601,9 +675,9 @@ namespace galera
                                              const wsrep_uuid_t& group_uuid,
                                              wsrep_seqno_t       group_seqno);
 
-        void send_state_request (const StateRequest* req);
+        long send_state_request (const StateRequest* req, const bool unsafe);
 
-        void request_state_transfer (void* recv_ctx,
+        long request_state_transfer (void* recv_ctx,
                                      const wsrep_uuid_t& group_uuid,
                                      wsrep_seqno_t       group_seqno,
                                      const void*         sst_req,
@@ -624,7 +698,8 @@ namespace galera
         class InitLib /* Library initialization routines */
         {
         public:
-            InitLib (gu_log_cb_t cb) { gu_init(cb); }
+            InitLib (gu_log_cb_t cb, gu_pfs_instr_cb_t pfs_instr_cb)
+            { gu_init(cb, pfs_instr_cb); }
         };
 
         InitLib                init_lib_;
@@ -670,6 +745,7 @@ namespace galera
         gu::Cond               closing_cond_;
         bool                   closing_; // to indicate that the closing process
                                          // started
+        // FSM<State, Transition, EmptyGuard, StateAction> state_;
         SstState               sst_state_;
 
         // configurable params
@@ -703,13 +779,19 @@ namespace galera
         wsrep_unordered_cb_t   unordered_cb_;
         wsrep_sst_donate_cb_t  sst_donate_cb_;
         wsrep_synced_cb_t      synced_cb_;
+        wsrep_abort_cb_t       abort_cb_;
 
         // SST
         std::string   sst_donor_;
         wsrep_uuid_t  sst_uuid_;
         wsrep_seqno_t sst_seqno_;
+#ifdef HAVE_PSI_INTERFACE
+        gu::MutexWithPFS sst_mutex_;
+        gu::CondWithPFS  sst_cond_;
+#else
         gu::Mutex     sst_mutex_;
         gu::Cond      sst_cond_;
+#endif /* HAVE_PSI_INTERFACE */
         int           sst_retry_sec_;
         bool          sst_received_;
 
@@ -723,6 +805,7 @@ namespace galera
         ActionSource*        as_;
         ist::Receiver        ist_receiver_;
         ist::AsyncSenderMap  ist_senders_;
+        bool                 ist_prepared_;
 
         // trx processing
         Wsdb            wsdb_;
@@ -752,9 +835,17 @@ namespace galera
 
         // non-atomic stats
         std::string           incoming_list_;
+#ifdef HAVE_PSI_INTERFACE
+        mutable gu::MutexWithPFS incoming_mutex_;
+#else
         mutable gu::Mutex     incoming_mutex_;
+#endif /* HAVE_PSI_INTERFACE */
 
         mutable std::vector<struct wsrep_stats_var> wsrep_stats_;
+
+        // Storage space for dynamic status strings
+        char                  interval_string_[64];
+        char                  ist_status_string_[128];
     };
 
     std::ostream& operator<<(std::ostream& os, ReplicatorSMM::State state);

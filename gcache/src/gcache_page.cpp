@@ -28,6 +28,8 @@ gcache::Page::reset ()
 
     space_ = mmap_.size;
     next_  = static_cast<uint8_t*>(mmap_.ptr);
+
+    BH_clear (reinterpret_cast<BufferHeader*>(next_));
 }
 
 void
@@ -36,7 +38,7 @@ gcache::Page::drop_fs_cache() const
     mmap_.dont_need();
 
 #if !defined(__APPLE__)
-    int const err (posix_fadvise (fd_.get(), 0, fd_.size(),
+    int const err (posix_fadvise (fd_.get(), 0, size_,
                                   POSIX_FADV_DONTNEED));
     if (err != 0)
     {
@@ -48,10 +50,16 @@ gcache::Page::drop_fs_cache() const
 
 gcache::Page::Page (void* ps, const std::string& name, size_t size)
     :
+#ifdef HAVE_PSI_INTERFACE
+    fd_   (name, WSREP_PFS_INSTR_TAG_GCACHE_PAGE_FILE, size, false, false),
+#else
     fd_   (name, size, false, false),
+#endif /* HAVE_PSI_INTERFACE */
     mmap_ (fd_),
     ps_   (ps),
     next_ (static_cast<uint8_t*>(mmap_.ptr)),
+    size_ (mmap_.size),
+    min_space_ (space_),
     space_(mmap_.size),
     used_ (0)
 {
@@ -79,6 +87,11 @@ gcache::Page::malloc (size_type size)
         space_ -= size;
         next_  += size;
         used_++;
+
+        if (min_space_ > space_)
+        {
+            min_space_ = space_;
+        }
 
 #ifndef NDEBUG
         if (space_ >= sizeof(BufferHeader))
@@ -116,7 +129,21 @@ gcache::Page::realloc (void* ptr, size_type size)
             bh->size += diff_size;
             space_   -= diff_size;
             next_    += diff_size;
-            BH_clear (BH_cast(next_));
+
+            if (min_space_ > space_)
+            {
+                min_space_ = space_;
+            }
+
+#ifndef NDEBUG
+            if (space_ >= static_cast<size_t>(sizeof(BufferHeader)))
+            {
+                BH_clear (BH_cast(next_));
+                assert (reinterpret_cast<uint8_t*>(bh + 1) < next_);
+            }
+
+            assert (next_ <= static_cast<uint8_t*>(mmap_.ptr) + mmap_.size);
+#endif
 
             return ptr;
         }
@@ -143,4 +170,9 @@ gcache::Page::realloc (void* ptr, size_type size)
             return ptr;
         }
     }
+}
+
+size_t gcache::Page::allocated_pool_size ()
+{
+    return mmap_.size - min_space_;
 }

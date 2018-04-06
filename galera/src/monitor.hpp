@@ -47,10 +47,17 @@ namespace galera
 
     public:
 
+#ifdef HAVE_PSI_INTERFACE
+        Monitor(wsrep_pfs_instr_tag mtag, wsrep_pfs_instr_tag ctag)
+            :
+            mutex_(mtag),
+            cond_(ctag),
+#else
         Monitor()
             :
             mutex_(),
             cond_(),
+#endif /* HAVE_PSI_INTERFACE */
             uuid_(WSREP_UUID_UNDEFINED),
             last_entered_(-1),
             last_left_(-1),
@@ -67,13 +74,13 @@ namespace galera
             delete[] process_;
             if (entered_ > 0)
             {
-                log_info << "mon: entered " << entered_
+                log_debug << "mon: entered " << entered_
                          << " oooe fraction " << double(oooe_)/entered_
                          << " oool fraction " << double(oool_)/entered_;
             }
             else
             {
-                log_info << "apply mon: entered 0";
+                log_debug << "apply mon: entered 0";
             }
         }
 
@@ -480,9 +487,15 @@ namespace galera
         Monitor(const Monitor&);
         void operator=(const Monitor&);
 
+#ifdef HAVE_PSI_INTERFACE
+        mutable
+        gu::MutexWithPFS mutex_;
+        gu::CondWithPFS  cond_;
+#else
         mutable
         gu::Mutex mutex_;
         gu::Cond  cond_;
+#endif /* HAVE_PSI_INTERFACE */
         wsrep_uuid_t  uuid_;
         wsrep_seqno_t last_entered_;
         wsrep_seqno_t last_left_;

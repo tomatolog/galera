@@ -33,17 +33,24 @@ galera::Wsdb::Wsdb()
     :
     trx_pool_  (TrxHandle::LOCAL_STORAGE_SIZE(), 512, "LocalTrxHandle"),
     trx_map_   (),
+    conn_trx_map_(),
+#ifdef HAVE_PSI_INTERFACE
+    trx_mutex_   (WSREP_PFS_INSTR_TAG_WSDB_TRX_MUTEX),
+    conn_map_  (),
+    conn_mutex_  (WSREP_PFS_INSTR_TAG_WSDB_CONN_MUTEX)
+#else
     trx_mutex_ (),
     conn_map_  (),
     conn_mutex_()
+#endif /* HAVE_PSI_INTERFACE */
 {}
 
 
 galera::Wsdb::~Wsdb()
 {
-    log_info << "wsdb trx map usage " << trx_map_.size()
+    log_debug << "wsdb trx map usage " << trx_map_.size()
              << " conn query map usage " << conn_map_.size();
-    log_info << trx_pool_;
+    log_debug << trx_pool_;
 
 #ifndef NDEBUG
     std::cerr << *this;
@@ -59,6 +66,17 @@ galera::Wsdb::create_trx(const TrxHandle::Params& params,
 {
     TrxHandlePtr trx(new_trx(params, source_id, trx_id));
 
+    if (trx_id == wsrep_trx_id_t(-1))
+    {
+        /* trx_id is default so add trx object to connection map
+        that is maintained based on pthread_id (alias for connection_id). */
+        std::pair<ConnTrxMap::iterator, bool> i
+            (conn_trx_map_.insert(std::make_pair(pthread_self(), trx)));
+        if (gu_unlikely(i.second == false)) gu_throw_fatal;
+
+        return i.first->second;
+    }
+
     std::pair<TrxMap::iterator, bool> i(trx_map_.insert(std::make_pair(trx_id, trx)));
     if (gu_unlikely(i.second == false)) gu_throw_fatal;
 
@@ -73,6 +91,25 @@ galera::Wsdb::get_trx(const TrxHandle::Params& params,
                       bool const               create)
 {
     gu::Lock lock(trx_mutex_);
+
+    if (trx_id == wsrep_trx_id_t(-1))
+    {
+        /* trx_id is default so search for repsective connection id
+        in connection-transaction map. */
+        pthread_t const id = pthread_self();
+        ConnTrxMap::iterator const i(conn_trx_map_.find(id));
+        if (i == conn_trx_map_.end() && create)
+        {
+            return create_trx(params, source_id, trx_id);
+        }
+        else if (i == conn_trx_map_.end())
+        {
+            return TrxHandlePtr();
+        }
+
+        return i->second;
+    }
+
     TrxMap::iterator const i(trx_map_.find(trx_id));
     if (i == trx_map_.end() && create)
     {
@@ -142,6 +179,17 @@ void galera::Wsdb::discard_trx(wsrep_trx_id_t trx_id)
 {
     gu::Lock lock(trx_mutex_);
     TrxMap::iterator i;
+
+    if (trx_id == wsrep_trx_id_t(-1))
+    {
+        ConnTrxMap::iterator i;
+        pthread_t id = pthread_self();
+        if ((i = conn_trx_map_.find(id)) != conn_trx_map_.end())
+        {
+            conn_trx_map_.erase(i);
+        }
+    }
+
     if ((i = trx_map_.find(trx_id)) != trx_map_.end())
     {
         trx_map_.erase(i);

@@ -88,6 +88,7 @@ namespace gu
         bool empty() const { return impl_.empty(); }
         void clear() { impl_.clear(); }
         void rehash(size_t n) { impl_.rehash(n); }
+        size_t bucket_count() { return impl_.bucket_count(); }
     };
 
     template <typename K, typename H = UnorderedHash<K>,
@@ -122,6 +123,7 @@ namespace gu
         bool empty() const { return impl_.empty(); }
         void clear() { impl_.clear(); }
         void rehash(size_t n) { impl_.rehash(n); }
+        size_t bucket_count() { return impl_.bucket_count(); }
     };
 
 
@@ -158,6 +160,7 @@ namespace gu
         bool empty() const { return impl_.empty(); }
         void clear() { impl_.clear(); }
         void rehash(size_t n) { impl_.rehash(n); }
+        size_t bucket_count() { return impl_.bucket_count(); }
     };
 
     template <typename K, typename V, typename H = UnorderedHash<K> >
@@ -189,6 +192,7 @@ namespace gu
         void erase(iterator i) { impl_.erase(i); }
         size_t size() const { return impl_.size(); }
         bool empty() const { return impl_.empty(); }
+        size_t bucket_count() { return impl_.bucket_count(); }
     };
 }
 

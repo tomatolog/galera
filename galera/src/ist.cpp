@@ -95,8 +95,13 @@ galera::ist::Receiver::Receiver(gu::Config&           conf,
     io_service_   (),
     acceptor_     (io_service_),
     ssl_ctx_      (io_service_, asio::ssl::context::sslv23),
+#ifdef HAVE_PSI_INTERFACE
+    mutex_        (WSREP_PFS_INSTR_TAG_IST_RECEIVER_MUTEX),
+    cond_         (WSREP_PFS_INSTR_TAG_IST_RECEIVER_CONDVAR),
+#else
     mutex_        (),
     cond_         (),
+#endif /* HAVE_PSI_INTERFACE */
     first_seqno_  (WSREP_SEQNO_UNDEFINED),
     last_seqno_   (WSREP_SEQNO_UNDEFINED),
     current_seqno_(WSREP_SEQNO_UNDEFINED),
@@ -148,8 +153,22 @@ galera::ist::Receiver::~Receiver()
 
 extern "C" void* run_receiver_thread(void* arg)
 {
+#ifdef HAVE_PSI_INTERFACE
+    pfs_instr_callback(WSREP_PFS_INSTR_TYPE_THREAD,
+                       WSREP_PFS_INSTR_OPS_INIT,
+                       WSREP_PFS_INSTR_TAG_IST_RECEIVER_THREAD,
+                       NULL, NULL, NULL);
+#endif /* HAVE_PSI_INTERFACE */
+
     galera::ist::Receiver* receiver(static_cast<galera::ist::Receiver*>(arg));
     receiver->run();
+
+#ifdef HAVE_PSI_INTERFACE
+    pfs_instr_callback(WSREP_PFS_INSTR_TYPE_THREAD,
+                       WSREP_PFS_INSTR_OPS_DESTROY,
+                       WSREP_PFS_INSTR_TAG_IST_RECEIVER_THREAD,
+                       NULL, NULL, NULL);
+#endif /* HAVE_PSI_INTERFACE */
     return 0;
 }
 
@@ -598,6 +617,7 @@ wsrep_seqno_t galera::ist::Receiver::finished()
     else
     {
         interrupt();
+        log_info << "IST interrupted";
 
         int err;
         if ((err = gu_thread_join(thread_, 0)) != 0)
@@ -873,6 +893,13 @@ void* run_async_sender(void* arg)
     galera::ist::AsyncSender* as
         (reinterpret_cast<galera::ist::AsyncSender*>(arg));
 
+#ifdef HAVE_PSI_INTERFACE
+    pfs_instr_callback(WSREP_PFS_INSTR_TYPE_THREAD,
+                       WSREP_PFS_INSTR_OPS_INIT,
+                       WSREP_PFS_INSTR_TAG_IST_ASYNC_SENDER_THREAD,
+                       NULL, NULL, NULL);
+#endif /* HAVE_PSI_INTERFACE */
+
     log_info << "async IST sender starting to serve " << as->peer().c_str()
              << " sending " << as->first() << "-" << as->last();
 
@@ -906,6 +933,13 @@ void* run_async_sender(void* arg)
         log_debug << "async IST sender already removed";
     }
     log_info << "async IST sender served";
+
+#ifdef HAVE_PSI_INTERFACE
+    pfs_instr_callback(WSREP_PFS_INSTR_TYPE_THREAD,
+                       WSREP_PFS_INSTR_OPS_DESTROY,
+                       WSREP_PFS_INSTR_TAG_IST_ASYNC_SENDER_THREAD,
+                       NULL, NULL, NULL);
+#endif /* HAVE_PSI_INTERFACE */
 
     return 0;
 }

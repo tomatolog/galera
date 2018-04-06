@@ -106,6 +106,82 @@ namespace gu
         friend class Lock;
     };
 
+#ifdef HAVE_PSI_INTERFACE
+
+    /* MutexWithPFS can be instrumented with MySQL performance schema.
+    (provided mysql has performance schema enabled).
+    In order to faciliate instead of direclty creating instance of
+    pthread mutex, mysql mutex instances is created using callback.
+    MutexWithPFS just act as wrapper invoking appropriate calls from
+    MySQL space. */
+    class MutexWithPFS
+    {
+    public:
+
+        MutexWithPFS (wsrep_pfs_instr_tag_t tag) : value()
+#ifdef GU_MUTEX_DEBUG
+                 , owned_()
+                 , locked_()
+#endif /* GU_MUTEX_DEBUG */
+                 , m_tag (tag)
+        {
+            pfs_instr_callback(WSREP_PFS_INSTR_TYPE_MUTEX,
+                               WSREP_PFS_INSTR_OPS_INIT,
+                               m_tag, reinterpret_cast<void**> (&value),
+                               NULL, NULL);
+        }
+
+        ~MutexWithPFS ()
+        {
+            pfs_instr_callback(WSREP_PFS_INSTR_TYPE_MUTEX,
+                               WSREP_PFS_INSTR_OPS_DESTROY,
+                               m_tag, reinterpret_cast<void**> (&value),
+                               NULL, NULL);
+        }
+
+        void lock()
+        {
+            pfs_instr_callback(WSREP_PFS_INSTR_TYPE_MUTEX,
+                               WSREP_PFS_INSTR_OPS_LOCK,
+                               m_tag, reinterpret_cast<void**> (&value),
+                               NULL, NULL);
+        }
+
+        void unlock()
+        {
+            pfs_instr_callback(WSREP_PFS_INSTR_TYPE_MUTEX,
+                               WSREP_PFS_INSTR_OPS_UNLOCK,
+                               m_tag, reinterpret_cast<void**> (&value),
+                               NULL, NULL);
+        }
+
+#if defined(GU_DEBUG_MUTEX)
+        bool locked() const { return gu_mutex_locked(value_); }
+        bool owned()  const { return gu_mutex_owned(value_);  }
+#elif defined(GU_MUTEX_DEBUG)
+        bool locked() const { return locked_; }
+        bool owned()  const { return gu_thread_equal(owned_,gu_thread_self()); }
+#endif /* GU_DEBUG_MUTEX */
+
+   protected:
+
+        gu_mutex_t* value;
+#ifdef GU_MUTEX_DEBUG
+        gu_thread_t mutable owned_;
+        bool        mutable locked_;
+#endif /* GU_MUTEX_DEBUG */
+
+    private:
+
+        wsrep_pfs_instr_tag_t m_tag;
+
+        MutexWithPFS (const MutexWithPFS&);
+        MutexWithPFS& operator= (const MutexWithPFS&);
+
+        friend class Lock;
+    };
+#endif /* HAVE_PSI_INTERFACE */
+
     class RecursiveMutex
     {
     public:
