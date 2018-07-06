@@ -176,6 +176,8 @@ wsrep_status_t galera_connect (wsrep_t*     gh,
     assert(gh->ctx != 0);
 
     REPL_CLASS * repl(reinterpret_cast< REPL_CLASS * >(gh->ctx));
+	
+	log_debug << "at connect";
 
     try
     {
@@ -210,7 +212,9 @@ wsrep_status_t galera_disconnect(wsrep_t *gh)
     assert(gh->ctx != 0);
 
     REPL_CLASS * repl(reinterpret_cast< REPL_CLASS * >(gh->ctx));
-
+	
+	log_debug << "at disconnect";
+	
     try
     {
         return repl->close();
@@ -235,6 +239,7 @@ wsrep_status_t galera_recv(wsrep_t *gh, void *recv_ctx)
     assert(gh->ctx != 0);
 
     REPL_CLASS * repl(reinterpret_cast< REPL_CLASS * >(gh->ctx));
+	log_debug << "at recv";
 
 #ifdef NDEBUG
     try
@@ -305,6 +310,7 @@ wsrep_status_t galera_replay_trx(wsrep_t*            gh,
     REPL_CLASS * repl(reinterpret_cast< REPL_CLASS * >(gh->ctx));
     TrxHandle* trx(get_local_trx(repl, trx_handle, false));
     assert(trx != 0);
+	log_debug << "at replay " << *trx << " " << trx;
 
     wsrep_status_t retval;
 
@@ -342,6 +348,8 @@ wsrep_status_t galera_abort_pre_commit(wsrep_t*       gh,
     REPL_CLASS *   repl(reinterpret_cast< REPL_CLASS * >(gh->ctx));
     wsrep_status_t retval;
     TrxHandle*     trx(repl->get_local_trx(victim_trx));
+
+	log_debug << "at abort_pre_commit";
 
     if (!trx) return WSREP_OK;
 
@@ -387,6 +395,8 @@ wsrep_status_t galera_interim_commit (wsrep_t*            gh,
     REPL_CLASS * repl(reinterpret_cast< REPL_CLASS * >(gh->ctx));
     TrxHandle* trx(get_local_trx(repl, ws_handle, false));
 
+	log_debug << "at interim_commit";
+
     if (trx == 0)
     {
         log_debug << "trx " << ws_handle->trx_id << " not found";
@@ -427,6 +437,8 @@ wsrep_status_t galera_post_commit (wsrep_t*            gh,
     REPL_CLASS * repl(reinterpret_cast< REPL_CLASS * >(gh->ctx));
     TrxHandle* trx(get_local_trx(repl, ws_handle, false));
 
+	log_debug << "at post_commit";
+
     if (trx == 0)
     {
         log_debug << "trx " << ws_handle->trx_id << " not found";
@@ -466,6 +478,8 @@ wsrep_status_t galera_post_rollback(wsrep_t*            gh,
 
     REPL_CLASS * repl(reinterpret_cast< REPL_CLASS * >(gh->ctx));
     TrxHandle* trx(get_local_trx(repl, ws_handle, false));
+
+	log_debug << "at post_rollback";
 
     if (trx == 0)
     {
@@ -531,6 +545,8 @@ wsrep_status_t galera_replicate(wsrep_t*           const gh,
 
     TrxHandle* trx(get_local_trx(repl, trx_handle, /*rbr_data != 0*/ false));
 
+	log_debug << "at replicate";
+
     if (trx == 0)
     {
         // no data to replicate
@@ -588,6 +604,8 @@ wsrep_status_t galera_pre_commit(wsrep_t*           const gh,
     REPL_CLASS * repl(reinterpret_cast< REPL_CLASS * >(gh->ctx));
 
     TrxHandle* trx(get_local_trx(repl, trx_handle, /*rbr_data != 0*/ false));
+
+	log_debug << "at pre_commit";
 
     if (trx == 0)
     {
@@ -650,6 +668,8 @@ wsrep_status_t galera_replicate_pre_commit(wsrep_t*           const gh,
     REPL_CLASS * repl(reinterpret_cast< REPL_CLASS * >(gh->ctx));
 
     TrxHandle* trx(get_local_trx(repl, trx_handle, /*rbr_data != 0*/ false));
+
+	log_debug << "at replicate_pre_commit";
 
     if (trx == 0)
     {
@@ -715,6 +735,9 @@ wsrep_status_t galera_applier_pre_commit(wsrep_t*   gh,
     assert(gh->ctx != 0);
 
     REPL_CLASS * repl(reinterpret_cast< REPL_CLASS * >(gh->ctx));
+
+	log_debug << "at applier_pre_commit";
+
     return repl->applier_pre_commit(trx_handle);
 }
 
@@ -726,6 +749,9 @@ wsrep_status_t galera_applier_interim_commit(wsrep_t*  gh,
     assert(gh->ctx != 0);
 
     REPL_CLASS * repl(reinterpret_cast< REPL_CLASS * >(gh->ctx));
+
+	log_debug << "at applier_interim_commit";
+
     return repl->applier_interim_commit(trx_handle);
 }
 
@@ -737,6 +763,9 @@ wsrep_status_t galera_applier_post_commit(wsrep_t*  gh,
     assert(gh->ctx != 0);
 
     REPL_CLASS * repl(reinterpret_cast< REPL_CLASS * >(gh->ctx));
+
+	log_debug << "at applier_post_commit";
+
     return repl->applier_post_commit(trx_handle);
 }
 
@@ -754,6 +783,8 @@ wsrep_status_t galera_append_key(wsrep_t*           const gh,
     REPL_CLASS * repl(reinterpret_cast< REPL_CLASS * >(gh->ctx));
     TrxHandle* trx(get_local_trx(repl, trx_handle, true));
     assert(trx != 0);
+
+	log_debug << "at append_key " << *trx << " " << trx;
 
     wsrep_status_t retval;
 
@@ -809,6 +840,8 @@ wsrep_status_t galera_append_data(wsrep_t*                const wsrep,
     TrxHandle* trx(get_local_trx(repl, trx_handle, true));
     assert(trx != 0);
 
+	log_debug << "at append_data " << *trx << " " << trx;
+
     wsrep_status_t retval;
 
     try
@@ -843,6 +876,9 @@ wsrep_status_t galera_causal_read(wsrep_t*      const wsrep,
     assert(wsrep->ctx != 0);
 
     REPL_CLASS * repl(reinterpret_cast< REPL_CLASS * >(wsrep->ctx));
+
+	log_debug << "at causal_read";
+
     wsrep_status_t retval;
     try
     {
@@ -873,6 +909,9 @@ wsrep_status_t galera_free_connection(wsrep_t*        const gh,
     // galera_to_execute_start() and will be released either
     // from that function in case of failure or from
     // galera_to_execute_end().
+	
+	log_debug << "at free_connection";
+	
     return WSREP_OK;
 }
 
@@ -893,6 +932,8 @@ wsrep_status_t galera_to_execute_start(wsrep_t*                const gh,
 
     TrxHandle* trx(repl->local_conn_trx(conn_id, true));
     assert(trx != 0);
+
+	log_debug << "at execute_start" << *trx << " " << trx;
 
     wsrep_status_t retval;
 
@@ -959,6 +1000,8 @@ wsrep_status_t galera_to_execute_end(wsrep_t*        const gh,
 
     TrxHandle* trx(repl->local_conn_trx(conn_id, false));
 
+	log_debug << "at execute_end" << *trx << " " << trx;
+
     if (trx == 0)
     {
         log_warn << "Could not find local connection object for "
@@ -1004,6 +1047,8 @@ galera_preordered_collect (wsrep_t* const gh,
 
     REPL_CLASS * repl(reinterpret_cast< REPL_CLASS * >(gh->ctx));
 
+	log_debug << "at preordered_collect";
+
     try
     {
         return repl->preordered_collect(*handle, data, count, copy);
@@ -1037,6 +1082,8 @@ galera_preordered_commit (wsrep_t* const gh,
 
     REPL_CLASS * repl(reinterpret_cast< REPL_CLASS * >(gh->ctx));
 
+	log_debug << "at preordered_commit";
+
     try
     {
         return repl->preordered_commit(*handle, *source_id, flags, pa_range,
@@ -1067,6 +1114,8 @@ wsrep_status_t galera_sst_sent (wsrep_t*            const gh,
 
     REPL_CLASS * repl(reinterpret_cast< REPL_CLASS * >(gh->ctx));
 
+	log_debug << "at sst_sent";
+
     return repl->sst_sent(*state_id, rcode);
 }
 
@@ -1084,6 +1133,8 @@ wsrep_status_t galera_sst_received (wsrep_t*            const gh,
     assert(rcode    <= 0);
 
     REPL_CLASS * repl(reinterpret_cast< REPL_CLASS * >(gh->ctx));
+
+	log_debug << "at sst_received";
 
     if (rcode < 0) { assert(state_id->seqno == WSREP_SEQNO_UNDEFINED); }
 
