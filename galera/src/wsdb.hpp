@@ -67,7 +67,7 @@ namespace galera
         class ConnTrxHash
         {
         public:
-            size_t operator()(const pthread_t& key) const { return key; }
+            size_t operator()(const pthread_t& key) const { return (size_t)key; }
         };
 
         typedef gu::UnorderedMap<pthread_t, TrxHandle*, ConnTrxHash> ConnTrxMap;
