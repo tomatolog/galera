@@ -145,7 +145,7 @@ add_library ( crc32 OBJECT ${GALERA_SOURCE_DIR}/www.evanjones.ca/crc32c.c
 target_compile_options ( crc32 PRIVATE ${cc_flags} ${c_flags} )
 
 target_compile_definitions ( crc32 PRIVATE WITH_GALERA )
-if ( CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" )
+if ( CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" OR CMAKE_SYSTEM_PROCESSOR STREQUAL "amd64" )
 	target_compile_options( crc32 PRIVATE "-msse4.2" )
 endif ()
 

@@ -87,6 +87,10 @@ if ( CMAKE_SYSTEM_NAME STREQUAL "Darwin" )
 	mark_as_advanced ( PORTPR BREWPR FINKPR )
 endif ()
 
+if ( CMAKE_SYSTEM_NAME STREQUAL "FreeBSD" )
+	set ( EXTRA_SYSROOT "/usr/local" )
+endif ()
+
 if ( EXTRA_SYSROOT )
 	set ( LIBPATH "${LIBPATH} ${EXTRA_SYSROOT}/lib" )
 	include_directories ( SYSTEM "${EXTRA_SYSROOT}/include")
@@ -138,11 +142,14 @@ if ( HAVE_SYS_EPOLL_H )
 	add_compile_definitions ( GALERA_USE_GU_NETWORK )
 endif ()
 
-check_headers ( "byteswap.h;endian.h;execinfo.h" )
+check_headers ( "byteswap.h;endian.h;execinfo.h;sys/endian.h" )
 
 add_compile_definitions ( HAVE_STD_ARRAY )
 add_compile_definitions ( HAVE_STD_UNORDERED_MAP )
 
+include(CheckIncludeFileCXX)
+
+populate_env()
 CheckStdSharedPtr ( HAVE_STD_SHARED_PTR )
 if ( HAVE_STD_SHARED_PTR )
 	add_compile_definitions ( HAVE_STD_SHARED_PTR )
@@ -151,11 +158,16 @@ else ()
 	if ( HAVE_BOOST_SHARED_PTR_HPP )
 		add_compile_definitions ( HAVE_BOOST_SHARED_PTR_HPP )
 	else()
-		message ( FATAL_ERROR "No shared ptr available")
+
+
+		CHECK_INCLUDE_FILE_CXX("boost/shared_ptr.hpp" HAVE_BOOST_SHARED_PTR_HPP1)
+		if (HAVE_BOOST_SHARED_PTR_HPP1)
+			add_compile_definitions(HAVE_BOOST_SHARED_PTR_HPP)
+		else()
+			message ( FATAL_ERROR "No shared ptr available")
+		endif()
 	endif()
 endif ()
-
-include ( CheckIncludeFileCXX )
 
 if ( WITH_BOOST )
 	add_compile_definitions ( BOOST_DATE_TIME_POSIX_TIME_STD_CONFIG=1 )
