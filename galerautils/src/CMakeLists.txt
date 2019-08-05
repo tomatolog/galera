@@ -154,5 +154,5 @@ target_compile_options ( galerautils PRIVATE ${cc_flags} ${c_flags} )
 
 add_library ( galerautilsxx STATIC  ${GALERAUTILSXX_SOURCES} ${GALERAUTILSXX_HEADERS} $<TARGET_OBJECTS:galerautils> $<TARGET_OBJECTS:crc32> )
 
-target_compile_options (galerautilsxx PRIVATE ${cc_flags} ${cxx_flags} -Wno-old-style-cast)
+target_compile_options (galerautilsxx PRIVATE ${cc_flags} ${cxx_flags} -Wno-old-style-cast -Wno-missing-field-initializers)
 target_include_directories(galerautilsxx PRIVATE "${GALERA_SOURCE_DIR}/common")

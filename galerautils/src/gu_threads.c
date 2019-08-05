@@ -279,6 +279,8 @@ int gu_barrier_destroy_SYS (gu_barrier_t_SYS *barrier)
     return 0;
 }
 
+#define GU_BARRIER_THREAD_SYS (1)
+
 int gu_barrier_wait_SYS (gu_barrier_t_SYS *barrier)
 {
     gu_mutex_lock_SYS (&barrier->mutex);

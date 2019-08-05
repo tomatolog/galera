@@ -6,7 +6,7 @@
  * $Id: $
  */
 
-#if defined(__APPLE__)
+#if 0 /* was: defined(__APPLE__) */
 
 #include <errno.h>
 #include <time.h> // struct timespec

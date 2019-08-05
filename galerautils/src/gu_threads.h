@@ -13,7 +13,7 @@
 #include "wsrep_api.h"
 extern gu_pfs_instr_cb_t pfs_instr_callback;
 
-#if __unix__
+#if __unix__ || __APPLE__
 
 #include <pthread.h>
 
