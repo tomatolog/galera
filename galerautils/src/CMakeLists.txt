@@ -150,7 +150,7 @@ if ( CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" OR CMAKE_SYSTEM_PROCESSOR STREQUAL
 endif ()
 
 add_library ( galerautils OBJECT ${GALERAUTILS_SOURCES} ${GALERAUTILS_HEADERS} )
-target_compile_options ( galerautils PRIVATE ${cc_flags} ${c_flags} )
+target_compile_options ( galerautils PRIVATE ${cc_flags} ${c_flags} -Wno-missing-field-initializers )
 
 add_library ( galerautilsxx STATIC  ${GALERAUTILSXX_SOURCES} ${GALERAUTILSXX_HEADERS} $<TARGET_OBJECTS:galerautils> $<TARGET_OBJECTS:crc32> )
 
