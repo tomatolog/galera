@@ -12,6 +12,8 @@
 #include <errno.h>
 #include <arpa/inet.h>
 #include <string>
+#include <sys/socket.h>
+#include <netinet/in.h>
 
 const char* gcs_group_state_str[GCS_GROUP_STATE_MAX] =
 {

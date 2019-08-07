@@ -126,6 +126,7 @@ endif()
 
 get_galera_api_version( "${WSREP_API}" WSREP_INTERFACE_VERSION )
 
+message (STATUS "Build on ${CMAKE_SYSTEM_NAME}")
 
 if ( NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND NOT MSVC )
 	find_library ( LIBRARIES_RT rt )
@@ -294,11 +295,13 @@ target_link_libraries ( ${TARGET_NAME} PRIVATE gcs galerapp gcomm gcache galerau
 #set_target_properties ( galera_smm PROPERTIES VERSION ${GALERA_VER} )
 set_target_properties ( ${TARGET_NAME} PROPERTIES SOVERSION "${WSREP_INTERFACE_VERSION}" )
 
+if ( NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin" )
 # Build shared objects with dynamic symbol dispatching disabled.
 # This enables predictable behavior upon dynamic loading with programs
 # that have own versions of commonly used libraries linked in (boost, asio, etc.)
 target_link_options ( ${TARGET_NAME} PRIVATE "-Wl,-Bsymbolic;-Wl,-Bsymbolic-functions" )
 check_no_dynamic_dispatch ( ${TARGET_NAME} )
+endif()
 diag ( CMAKE_CXX_COMPILER_ID )
 
 install ( TARGETS ${TARGET_NAME} LIBRARY DESTINATION usr/lib COMPONENT applications NAMELINK_SKIP )
