@@ -247,7 +247,7 @@ int gu_cond_twait_DBG (gu_cond_t_SYS *cond, gu_mutex_t_DBG *m,
 
 #endif /* GU_DEBUG_MUTEX */
 
-#if defined(__APPLE__)
+#if  defined(__APPLE__)
 
 int gu_barrier_init_SYS (gu_barrier_t_SYS *barrier,
                          const gu_barrierattr_t_SYS *attr, unsigned int count)
@@ -279,8 +279,6 @@ int gu_barrier_destroy_SYS (gu_barrier_t_SYS *barrier)
     return 0;
 }
 
-#define GU_BARRIER_THREAD_SYS (1)
-
 int gu_barrier_wait_SYS (gu_barrier_t_SYS *barrier)
 {
     gu_mutex_lock_SYS (&barrier->mutex);
@@ -290,13 +288,13 @@ int gu_barrier_wait_SYS (gu_barrier_t_SYS *barrier)
         barrier->count = 0;
         gu_cond_broadcast_SYS (&barrier->cond);
         gu_mutex_unlock_SYS (&barrier->mutex);
-        return GU_BARRIER_THREAD_SYS;
+        return GU_BARRIER_SERIAL_THREAD_SYS;
     }
     else
     {
         gu_cond_wait_SYS (&barrier->cond, &(barrier->mutex));
         gu_mutex_unlock_SYS (&barrier->mutex);
-        return !GU_BARRIER_THREAD_SYS;
+        return !GU_BARRIER_SERIAL_THREAD_SYS;
     }
 }
 
