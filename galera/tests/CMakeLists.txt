@@ -15,9 +15,10 @@ add_executable ( galera_check
 		service_thd_check.cpp
 		ist_check.cpp
 		saved_state_check.cpp
+		defaults_check.cpp
 		)
 
-target_link_libraries ( galera_check gcache galerapp gcs gcomm galerautilsxx ${LINKS_TST} ${LINKS} )
+target_link_libraries ( galera_check gcache galerapp gcs gcomm galerautilsxx galerautils ${LINKS_TST} ${LINKS} )
 target_compile_options ( galera_check PUBLIC ${cc_flags} ${cxx_flags} )
 
 add_test ( NAME galera_check COMMAND galera_check )

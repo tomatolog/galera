@@ -32,42 +32,20 @@ function ( check_headers _HEADERS )
 endfunction ( check_headers )
 
 # non-windows case. For linux - use objcopy to make 'clean' and 'debug' binaries
-function( __split_linux_dbg BINARYNAME )
-	if ( NOT DEFINED CMAKE_OBJCOPY )
+function( check_no_dynamic_dispatch BINARYNAME )
+	if ( NOT DEFINED CMAKE_OBJDUMP )
 		find_package ( BinUtils QUIET )
 	endif ()
-	if ( NOT DEFINED CMAKE_OBJCOPY )
-		find_program ( CMAKE_OBJCOPY objcopy )
-	endif ()
-	if ( NOT DEFINED CMAKE_OBJCOPY )
-		message ( SEND_ERROR "Missed objcopy prog. Can't split symbols!" )
-		unset ( SPLIT_SYMBOLS CACHE )
-	endif ( NOT DEFINED CMAKE_OBJCOPY )
-	mark_as_advanced ( CMAKE_OBJCOPY BinUtils_DIR )
+	if ( NOT DEFINED CMAKE_OBJDUMP )
+		message ( SEND_ERROR "objdump utility is not found. Skipping checks..." )
+	endif ( NOT DEFINED CMAKE_OBJDUMP )
+	mark_as_advanced ( CMAKE_OBJDUMP BinUtils_DIR )
 
 	ADD_CUSTOM_COMMAND ( TARGET ${BINARYNAME} POST_BUILD
-			COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:${BINARYNAME}> $<TARGET_FILE:${BINARYNAME}>.dbg
-			COMMAND ${CMAKE_OBJCOPY} --strip-all $<TARGET_FILE:${BINARYNAME}>
-			COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE:${BINARYNAME}>.dbg $<TARGET_FILE:${BINARYNAME}>
-			COMMENT "Splitting symbols from ${BINARYNAME}"
+			COMMAND ! ${CMAKE_OBJDUMP} -D --section=.plt $<TARGET_FILE:${BINARYNAME}> | grep -q boost
+			COMMENT "Checking dynamic dispatch is off for '${BINARYNAME}'..."
 			VERBATIM
 			)
-	INSTALL ( FILES $<TARGET_FILE:${BINARYNAME}>.dbg
-			DESTINATION ${CMAKE_INSTALL_LIBDIR}/debug/usr/bin
-			COMPONENT dbgsymbols )
-endfunction()
-
-# split debug symbols from target, return path with dbg
-function( split_dbg BINARYNAME )
-	if ( MSVC )
-		message (STATUS "Stub. Not implemented (windows).")
-#		__split_win_dbg ( ${BINARYNAME} ${DBGOUT})
-	elseif ( APPLE )
-		message ( STATUS "Stub. Not implemented (mac)." )
-#		__split_apple_dbg ( ${BINARYNAME} ${DBGOUT})
-	else ()
-		__split_linux_dbg ( ${BINARYNAME})
-	endif ()
 endfunction()
 
 include ( CheckCXXSourceCompiles )
@@ -78,7 +56,7 @@ function ( CheckSystemASIOVersion OUTVAR )
 #define XSTR(x) STR(x)
 #define STR(x) #x
 #pragma message \"Asio version:\" XSTR(ASIO_VERSION)
-#if ASIO_VERSION < 101001
+#if ASIO_VERSION < 101008
 #error Included asio version is too old
 #elif ASIO_VERSION >= 101100
 #error Included asio version is too new
@@ -97,7 +75,7 @@ int main()
 		LIST (APPEND CMAKE_REQUIRED_DEFINITIONS "-D${def}")
 	endforeach()
 
-	message ( STATUS "Checking ASIO version (>= 1.10.1 and < 1.11.0)" )
+	message ( STATUS "Checking ASIO version (>= 1.10.8 and < 1.11.0)" )
 	CHECK_CXX_SOURCE_COMPILES ( "${system_asio_test_source_file}" ${OUTVAR}__res_ )
 	set ( "${OUTVAR}" "${${OUTVAR}__res_}" PARENT_SCOPE )
 endfunction()
@@ -176,8 +154,18 @@ function (populate_env)
 endfunction()
 
 function ( show_options target )
-	get_property ( COMPILE_OPTIONS TARGET ${target} PROPERTY COMPILE_OPTIONS )
-	message ( STATUS "Compile options for ${target} are ${COMPILE_OPTIONS}" )
+	get_property ( options TARGET ${target} PROPERTY COMPILE_OPTIONS )
+	message ( STATUS "Compile options for ${target} are ${options}" )
+endfunction()
+
+function( show_definitions target )
+	get_property ( definitions DIRECTORY . PROPERTY COMPILE_DEFINITIONS )
+	message ( STATUS "Compile definitions for ${target} are ${definitions}" )
+endfunction()
+
+function( show_target_definitions target )
+	get_property ( definitions TARGET ${target} PROPERTY COMPILE_DEFINITIONS )
+	message ( STATUS "Compile definitions for ${target} are ${definitions}" )
 endfunction()
 
 function( remove_compile_option target option )

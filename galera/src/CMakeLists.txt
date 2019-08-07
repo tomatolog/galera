@@ -26,10 +26,13 @@ SET ( LIBGALERAXX_SRCS
 		)
 
 SET ( MMGALERA_SRCS
-		wsrep_provider.cpp
 		replicator_smm.cpp
 		replicator_str.cpp
 		replicator_smm_stats.cpp
+		)
+
+SET ( MMPROVIDER_SRCS
+		wsrep_provider.cpp
 		)
 
 SET ( LIBGALERAXX_HDRS
@@ -63,14 +66,13 @@ SET ( LIBGALERAXX_HDRS
 		wsrep_params.hpp
 		)
 
+add_compile_options ( ${cc_flags} ${cxx_flags} )
 add_library ( galerapp STATIC ${LIBGALERAXX_SRCS} ${LIBGALERAXX_HDRS} )
-target_compile_options ( galerapp PRIVATE ${cc_flags} ${cxx_flags} )
 
 # Environment to compile provider unit (part of multimaster library)
+add_library ( mmgalera OBJECT ${MMGALERA_SRCS} ${MMPROVIDER_SRCS} )
+target_compile_definitions ( mmgalera PRIVATE GALERA_MULTIMASTER )
+
 # This is needed to hardcode version and revision
 # Environment for multimaster library build
-add_library ( mmgalera OBJECT ${MMGALERA_SRCS} )
-target_compile_definitions ( mmgalera PRIVATE GALERA_MULTIMASTER )
-target_compile_definitions ( mmgalera PRIVATE GALERA_VER=\"${GALERA_VER}\" )
-target_compile_definitions ( mmgalera PRIVATE GALERA_REV=\"${GALERA_REV}\" )
-target_compile_options ( mmgalera PRIVATE ${cc_flags} ${cxx_flags} )
+set_property ( SOURCE ${MMPROVIDER_SRCS} APPEND PROPERTY COMPILE_DEFINITIONS GALERA_VER=\"${GALERA_VER}\" GALERA_REV=\"${GALERA_REV}\")

@@ -55,7 +55,7 @@ endif()
 
 
 # fixme - do the way how galera originally determines it
-SET (GALERA_VER "3.35")
+SET (GALERA_VER "3.37")
 get_galera_revision ( GALERA_REV )
 
 message (STATUS "Signature: version: ${GALERA_VER}, revision: ${GALERA_REV}")
@@ -294,10 +294,11 @@ target_link_libraries ( ${TARGET_NAME} PRIVATE gcs galerapp gcomm gcache galerau
 #set_target_properties ( galera_smm PROPERTIES VERSION ${GALERA_VER} )
 set_target_properties ( ${TARGET_NAME} PROPERTIES SOVERSION "${WSREP_INTERFACE_VERSION}" )
 
+# Build shared objects with dynamic symbol dispatching disabled.
+# This enables predictable behavior upon dynamic loading with programs
+# that have own versions of commonly used libraries linked in (boost, asio, etc.)
+target_link_options ( ${TARGET_NAME} PRIVATE "-Wl,-Bsymbolic;-Wl,-Bsymbolic-functions" )
+check_no_dynamic_dispatch ( ${TARGET_NAME} )
 diag ( CMAKE_CXX_COMPILER_ID )
-
-if ( SPLIT_SYMBOLS )
-	split_dbg ( ${TARGET_NAME} )
-endif ()
 
 install ( TARGETS ${TARGET_NAME} LIBRARY DESTINATION usr/lib COMPONENT applications NAMELINK_SKIP )

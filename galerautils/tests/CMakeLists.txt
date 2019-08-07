@@ -1,5 +1,6 @@
 include_directories ( "${GALERA_SOURCE_DIR}" )
 include_directories ( "${GALERA_SOURCE_DIR}/galerautils/src" )
+include_directories ( "${GALERA_SOURCE_DIR}/common" )
 
 link_libraries ( galerautilsxx ${LINKS_TST} ${LINKS} )
 
@@ -38,6 +39,7 @@ add_executable ( gu_testspp
 		gu_histogram_test.cpp
 		gu_stats_test.cpp
 		gu_thread_test.cpp
+		gu_asio_test.cpp
 		gu_tests++.cpp
 		)
 

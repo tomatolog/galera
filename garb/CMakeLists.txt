@@ -34,8 +34,4 @@ endif ()
 target_link_libraries ( garbd gcs4garb gcomm galerautilsxx ${LINKS} )
 target_compile_options ( garbd PRIVATE ${cc_flags} ${cxx_flags} )
 
-
-if ( SPLIT_SYMBOLS )
-	install_dbg ( garbd )
-endif()
 install ( TARGETS garbd RUNTIME DESTINATION bin COMPONENT applications )
