@@ -98,7 +98,7 @@ add_common_options ( "-fPIC;-Wall;-Wextra;-Wno-unused-parameter" )
 
 # separate property sets for C and CXX
 add_c_options ( "-std=c99;-fno-strict-aliasing;-pipe" )
-add_cxx_options ( "-pipe;-Wno-long-long;-Wno-deprecated" )
+add_cxx_options ( "-pipe;-Wno-long-long;-Wno-deprecated;-Wno-stringop-truncation" )
 if ( CMAKE_SYSTEM_NAME STREQUAL "Linux" )
 	add_compile_definitions ( _XOPEN_SOURCE=600 )
 endif()
