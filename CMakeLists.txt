@@ -150,6 +150,13 @@ add_compile_definitions ( HAVE_STD_UNORDERED_MAP )
 
 include(CheckIncludeFileCXX)
 
+if (WITH_BOOST)
+	add_compile_definitions(BOOST_DATE_TIME_POSIX_TIME_STD_CONFIG=1)
+	find_package(Boost COMPONENTS system)
+	add_main_library("${Boost_system_LIBRARY}")
+	include_directories(${Boost_INCLUDE_DIRS})
+endif ()
+
 populate_env()
 CheckStdSharedPtr ( HAVE_STD_SHARED_PTR )
 if ( HAVE_STD_SHARED_PTR )
@@ -159,8 +166,6 @@ else ()
 	if ( HAVE_BOOST_SHARED_PTR_HPP )
 		add_compile_definitions ( HAVE_BOOST_SHARED_PTR_HPP )
 	else()
-
-
 		CHECK_INCLUDE_FILE_CXX("boost/shared_ptr.hpp" HAVE_BOOST_SHARED_PTR_HPP1)
 		if (HAVE_BOOST_SHARED_PTR_HPP1)
 			add_compile_definitions(HAVE_BOOST_SHARED_PTR_HPP)
@@ -168,12 +173,6 @@ else ()
 			message ( FATAL_ERROR "No shared ptr available")
 		endif()
 	endif()
-endif ()
-
-if ( WITH_BOOST )
-	add_compile_definitions ( BOOST_DATE_TIME_POSIX_TIME_STD_CONFIG=1 )
-	find_package ( Boost COMPONENTS system )
-	add_main_library ( "${Boost_system_LIBRARY}" )
 endif ()
 
 if ( WITH_BOOST_POOL )
