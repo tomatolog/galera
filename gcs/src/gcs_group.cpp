@@ -1711,7 +1711,7 @@ gcs_group_fetch_pfs_info(
 
         strncpy(entries[i].host_name, node.name, WSREP_HOSTNAME_LENGTH);
 
-        strncpy(entries[i].uuid, node.id, WSREP_UUID_STR_LEN);
+        memcpy(entries[i].uuid, node.id, WSREP_UUID_STR_LEN);
 
         strncpy(
             entries[i].status,
