@@ -156,3 +156,4 @@ add_library ( galerautilsxx STATIC  ${GALERAUTILSXX_SOURCES} ${GALERAUTILSXX_HEA
 
 target_compile_options (galerautilsxx PRIVATE ${cc_flags} ${cxx_flags} -Wno-old-style-cast -Wno-missing-field-initializers)
 target_include_directories(galerautilsxx PRIVATE "${GALERA_SOURCE_DIR}/common")
+target_link_libraries(galerautilsxx PRIVATE OpenSSL::SSL Boost::system)

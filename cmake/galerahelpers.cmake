@@ -52,7 +52,7 @@ include ( CheckCXXSourceCompiles )
 
 function ( CheckSystemASIOVersion OUTVAR )
 	set ( system_asio_test_source_file "
-#include <asio.hpp>
+#include <boost/asio.hpp>
 #define XSTR(x) STR(x)
 #define STR(x) #x
 #pragma message \"Asio version:\" XSTR(ASIO_VERSION)
@@ -69,7 +69,8 @@ int main()
 ")
 	set ( CMAKE_REQUIRED_FLAGS "${CC_FLAGS}")
 	get_property ( REQUIRED_DEFINITIONS DIRECTORY PROPERTY COMPILE_DEFINITIONS )
-	get_property ( CMAKE_REQUIRED_INCLUDES DIRECTORY PROPERTY INCLUDE_DIRECTORIES )
+#	get_property ( CMAKE_REQUIRED_INCLUDES DIRECTORY PROPERTY INCLUDE_DIRECTORIES )
+    set (CMAKE_REQUIRED_INCLUDES ${Boost_INCLUDE_DIRS})
 	set ( CMAKE_REQUIRED_DEFINITIONS "")
 	FOREACH ( def ${REQUIRED_DEFINITIONS} )
 		LIST (APPEND CMAKE_REQUIRED_DEFINITIONS "-D${def}")
@@ -107,9 +108,8 @@ endfunction()
 
 function( CheckStdSharedPtr OUTVAR )
 	set ( _test_source "
-#include <boost/function.hpp>
 #include <memory>
-int main() { std::shared_ptr<int> x; auto y = boost::get_pointer(x); return 0; }
+int main() { std::shared_ptr<int> x; auto y = x.get(); return 0; }
 " )
 	message ( STATUS "Checking for std::shared_ptr is usable ..." )
 	CHECK_CXX_SOURCE_COMPILES ( "${_test_source}" ${OUTVAR}__res_ )
@@ -135,22 +135,6 @@ int main() { SSL_CTX* ctx=NULL; EC_KEY* ecdh=NULL; return !SSL_CTX_set_tmp_ecdh(
 	message ( STATUS "Checking for SSL_CTX_set_tmp_ecdh_()" )
 	CHECK_CXX_SOURCE_COMPILES ( "${_test_source}" ${OUTVAR}__res_ )
 	set ( "${OUTVAR}" "${${OUTVAR}__res_}" PARENT_SCOPE )
-endfunction()
-
-
-function (populate_env)
-	set ( CMAKE_REQUIRED_FLAGS "${cc_flags}" )
-	get_property ( REQUIRED_DEFINITIONS DIRECTORY PROPERTY COMPILE_DEFINITIONS )
-	get_property ( CMAKE_REQUIRED_INCLUDES DIRECTORY PROPERTY INCLUDE_DIRECTORIES )
-	set ( CMAKE_REQUIRED_DEFINITIONS "" )
-	FOREACH ( def ${REQUIRED_DEFINITIONS} )
-		LIST ( APPEND CMAKE_REQUIRED_DEFINITIONS "-D${def}" )
-	endforeach ()
-
-	set ( CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS}" PARENT_SCOPE )
-	set ( CMAKE_REQUIRED_INCLUDES "${CMAKE_REQUIRED_INCLUDES}" PARENT_SCOPE )
-	set ( CMAKE_REQUIRED_DEFINITIONS "${CMAKE_REQUIRED_DEFINITIONS}" PARENT_SCOPE )
-	set ( CMAKE_REQUIRED_LIBRARIES "${LINKS}" PARENT_SCOPE )
 endfunction()
 
 function ( show_options target )
@@ -189,12 +173,6 @@ endfunction()
 function( add_common_options options )
 	list (APPEND cc_flags ${options} )
 	set ( cc_flags ${cc_flags} PARENT_SCOPE )
-endfunction()
-
-function( add_main_library library )
-	list ( APPEND LINKS ${library} )
-	set ( LINKS ${LINKS} PARENT_SCOPE )
-
 endfunction()
 
 function( add_test_library library )

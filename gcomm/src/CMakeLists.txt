@@ -63,3 +63,4 @@ endif()
 add_library ( gcomm STATIC ${LIBGCOMM_SOURCES} ${LIBCOMM_ASIO_SOURCES}
 		${LIBCOMM_HEADERS} ${LIBCOMM_ASIO_HEADERS})
 target_compile_options ( gcomm PRIVATE ${cc_flags} ${cxx_flags} -fno-strict-aliasing )
+target_link_libraries ( gcomm PRIVATE OpenSSL::SSL Boost::system )

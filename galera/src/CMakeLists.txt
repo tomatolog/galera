@@ -66,6 +66,8 @@ SET ( LIBGALERAXX_HDRS
 		wsrep_params.hpp
 		)
 
+link_libraries(OpenSSL::SSL Boost::system)
+
 add_compile_options ( ${cc_flags} ${cxx_flags} )
 add_library ( galerapp STATIC ${LIBGALERAXX_SRCS} ${LIBGALERAXX_HDRS} )
 
