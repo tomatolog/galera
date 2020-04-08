@@ -285,8 +285,8 @@ endif()
 
 set ( TARGET_NAME "galera_manticore" )
 
-add_library ( ${TARGET_NAME} SHARED $<TARGET_OBJECTS:mmgalera> )
-target_link_libraries ( ${TARGET_NAME} PRIVATE gcs mmprovider galerapp gcomm gcache galerautilsxx ${LINKS} Boost::system)
+add_library ( ${TARGET_NAME} SHARED $<TARGET_OBJECTS:mmprovider> )
+target_link_libraries ( ${TARGET_NAME} PRIVATE gcs mmgalera galerapp gcomm gcache galerautilsxx ${LINKS} Boost::system)
 #set_target_properties ( galera_smm PROPERTIES VERSION ${GALERA_VER} )
 set_target_properties ( ${TARGET_NAME} PROPERTIES SOVERSION "${WSREP_INTERFACE_VERSION}" )
 

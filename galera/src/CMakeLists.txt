@@ -72,9 +72,9 @@ add_compile_options ( ${cc_flags} ${cxx_flags} )
 add_library ( galerapp STATIC ${LIBGALERAXX_SRCS} ${LIBGALERAXX_HDRS} )
 
 # Environment to compile provider unit (part of multimaster library)
-add_library ( mmgalera OBJECT ${MMGALERA_SRCS} )
+add_library ( mmgalera STATIC ${MMGALERA_SRCS} )
 
-add_library ( mmprovider STATIC ${MMPROVIDER_SRCS} )
+add_library ( mmprovider OBJECT ${MMPROVIDER_SRCS} )
 target_compile_definitions (mmprovider PRIVATE GALERA_MULTIMASTER )
 
 # This is needed to hardcode version and revision
