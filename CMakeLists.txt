@@ -283,21 +283,21 @@ if ( WITH_GARBD )
 	add_subdirectory ( garb )
 endif()
 
-set ( TARGET_NAME "galera_manticore" )
+set ( GALERA_NAME "galera_manticore" )
 
-add_library ( ${TARGET_NAME} SHARED $<TARGET_OBJECTS:mmprovider> )
-target_link_libraries ( ${TARGET_NAME} PRIVATE mmgalera gcs galerapp gcomm gcache galerautilsxx ${LINKS} Boost::system)
+add_library ( ${GALERA_NAME} SHARED $<TARGET_OBJECTS:mmprovider> )
+target_link_libraries ( ${GALERA_NAME} PRIVATE mmgalera gcs galerapp gcomm gcache galerautilsxx ${LINKS} Boost::system)
 #set_target_properties ( galera_smm PROPERTIES VERSION ${GALERA_VER} )
-set_target_properties ( ${TARGET_NAME} PROPERTIES SOVERSION "${WSREP_INTERFACE_VERSION}" )
+set_target_properties ( ${GALERA_NAME} PROPERTIES SOVERSION "${WSREP_INTERFACE_VERSION}" )
 
 if ( NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin" )
-# Build shared objects with dynamic symbol dispatching disabled.
-# This enables predictable behavior upon dynamic loading with programs
-# that have own versions of commonly used libraries linked in (boost, asio, etc.)
-target_link_options ( ${TARGET_NAME} PRIVATE "-Wl,-Bsymbolic;-Wl,-Bsymbolic-functions" )
-check_no_dynamic_dispatch ( ${TARGET_NAME} )
+	# Build shared objects with dynamic symbol dispatching disabled.
+	# This enables predictable behavior upon dynamic loading with programs
+	# that have own versions of commonly used libraries linked in (boost, asio, etc.)
+	target_link_options ( ${GALERA_NAME} PRIVATE "-Wl,-Bsymbolic;-Wl,-Bsymbolic-functions" )
+	check_no_dynamic_dispatch ( ${GALERA_NAME} )
 endif()
 diag ( CMAKE_CXX_COMPILER_ID )
 
-install ( TARGETS ${TARGET_NAME} LIBRARY DESTINATION usr/lib COMPONENT applications NAMELINK_SKIP )
-export(TARGETS ${TARGET_NAME} FILE "${CMAKE_CURRENT_BINARY_DIR}/galera-targets.cmake" NAMESPACE galera::)
+#install ( TARGETS ${GALERA_NAME} LIBRARY DESTINATION usr/lib COMPONENT applications NAMELINK_SKIP )
+export(TARGETS ${GALERA_NAME} FILE "${CMAKE_CURRENT_BINARY_DIR}/galera-targets.cmake" NAMESPACE galera::)
