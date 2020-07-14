@@ -250,7 +250,7 @@ galera::ReplicatorSMM::stats_get()
 
     std::ostringstream osinterval;
     osinterval << "[ " << stats.fc_lower_limit << ", " << stats.fc_upper_limit << " ]";
-    strncpy(interval_string_, osinterval.str().c_str(), sizeof(interval_string_));
+    strncpy(interval_string_, osinterval.str().c_str(), sizeof(interval_string_)-1);
     sv[STATS_FC_INTERVAL         ].value._string = interval_string_;
     sv[STATS_FC_INTERVAL_LOW     ].value._int64 = stats.fc_lower_limit;
     sv[STATS_FC_INTERVAL_HIGH    ].value._int64 = stats.fc_upper_limit;
