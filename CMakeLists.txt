@@ -153,10 +153,11 @@ include(CheckIncludeFileCXX)
 if (WITH_BOOST)
 	add_compile_definitions(BOOST_DATE_TIME_POSIX_TIME_STD_CONFIG=1)
 	find_package(Boost COMPONENTS system)
-	set(CMAKE_REQUIRED_LIBRARIES Boost::system)
+	list(APPEND LINKS "${Boost_system_LIBRARY}")
+	include_directories(${Boost_INCLUDE_DIRS})
 endif ()
 
-CheckStdSharedPtr ( HAVE_STD_SHARED_PTR )
+CheckStdSharedPtr (HAVE_STD_SHARED_PTR)
 if ( HAVE_STD_SHARED_PTR )
 	add_compile_definitions ( HAVE_STD_SHARED_PTR )
 else ()
@@ -186,7 +187,8 @@ if ( BREWPR )
 endif ()
 
 find_package ( OpenSSL REQUIRED )
-list(APPEND CMAKE_REQUIRED_LIBRARIES OpenSSL::SSL OpenSSL::Crypto)
+list(APPEND LINKS "${OPENSSL_LIBRARIES}" )
+include_directories(${OPENSSL_INCLUDE_DIR})
 
 # these two internals came from finding openssl
 mark_as_advanced ( pkgcfg_lib__OPENSSL_crypto pkgcfg_lib__OPENSSL_ssl )
@@ -286,7 +288,7 @@ endif()
 set ( GALERA_NAME "galera_manticore" )
 
 add_library ( ${GALERA_NAME} SHARED $<TARGET_OBJECTS:mmprovider> )
-target_link_libraries ( ${GALERA_NAME} PRIVATE mmgalera gcs galerapp gcomm gcache galerautilsxx ${LINKS} Boost::system)
+target_link_libraries ( ${GALERA_NAME} PRIVATE mmgalera gcs galerapp gcomm gcache galerautilsxx ${LINKS} )
 #set_target_properties ( galera_smm PROPERTIES VERSION ${GALERA_VER} )
 set_target_properties ( ${GALERA_NAME} PROPERTIES SOVERSION "${WSREP_INTERFACE_VERSION}" )
 

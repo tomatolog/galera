@@ -60,7 +60,6 @@ SET ( LIBGCS_HEADERS
 		gcs_test.hpp
 		)
 
-link_libraries(Boost::system)
 
 add_library ( gcs STATIC ${LIBGCS_SOURCES} ${LIBGCS_HEADERS} )
 target_compile_definitions ( gcs PRIVATE GCS_USE_GCOMM )
