@@ -188,6 +188,8 @@ endif ()
 
 find_package ( OpenSSL REQUIRED )
 list(APPEND CMAKE_REQUIRED_LIBRARIES OpenSSL::SSL OpenSSL::Crypto)
+set(CMAKE_REQUIRED_LIBRARIES "${OPENSSL_LIBRARIES}")
+include_directories(${OPENSSL_INCLUDE_DIR})
 
 # these two internals came from finding openssl
 mark_as_advanced ( pkgcfg_lib__OPENSSL_crypto pkgcfg_lib__OPENSSL_ssl )
