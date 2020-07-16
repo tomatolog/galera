@@ -153,11 +153,10 @@ include(CheckIncludeFileCXX)
 if (WITH_BOOST)
 	add_compile_definitions(BOOST_DATE_TIME_POSIX_TIME_STD_CONFIG=1)
 	find_package(Boost COMPONENTS system)
-	list(APPEND LINKS "${Boost_system_LIBRARY}")
-	include_directories(${Boost_INCLUDE_DIRS})
+	set(CMAKE_REQUIRED_LIBRARIES Boost::system)
 endif ()
 
-CheckStdSharedPtr (HAVE_STD_SHARED_PTR)
+CheckStdSharedPtr ( HAVE_STD_SHARED_PTR )
 if ( HAVE_STD_SHARED_PTR )
 	add_compile_definitions ( HAVE_STD_SHARED_PTR )
 else ()
@@ -188,8 +187,6 @@ endif ()
 
 find_package ( OpenSSL REQUIRED )
 list(APPEND CMAKE_REQUIRED_LIBRARIES OpenSSL::SSL OpenSSL::Crypto)
-set(CMAKE_REQUIRED_LIBRARIES "${OPENSSL_LIBRARIES}")
-include_directories(${OPENSSL_INCLUDE_DIR})
 
 # these two internals came from finding openssl
 mark_as_advanced ( pkgcfg_lib__OPENSSL_crypto pkgcfg_lib__OPENSSL_ssl )
@@ -210,7 +207,6 @@ if (NOT SYSTEM_ASIO)
 	# that may contain a system wide installed asio. We should use the bundled
 	# asio if "scons system_asio=0" is specified. Thus use Prepend().
 	list(INSERT CMAKE_REQUIRED_INCLUDES 0 "${GALERA_SOURCE_DIR}/asio")
-	set(CMAKE_REQUIRED_INCLUDES "${GALERA_SOURCE_DIR}/asio;${Boost_INCLUDE_DIRS}")
 	CHECK_INCLUDE_FILE_CXX ( "asio.hpp" HAVE_ASIO_HPP_NSYS )
 	if ( HAVE_ASIO_HPP_NSYS )
 		include_directories(BEFORE "${GALERA_SOURCE_DIR}/asio")
@@ -290,7 +286,7 @@ endif()
 set ( GALERA_NAME "galera_manticore" )
 
 add_library ( ${GALERA_NAME} SHARED $<TARGET_OBJECTS:mmprovider> )
-target_link_libraries ( ${GALERA_NAME} PRIVATE mmgalera gcs galerapp gcomm gcache galerautilsxx ${LINKS} )
+target_link_libraries ( ${GALERA_NAME} PRIVATE mmgalera gcs galerapp gcomm gcache galerautilsxx ${LINKS} Boost::system)
 #set_target_properties ( galera_smm PROPERTIES VERSION ${GALERA_VER} )
 set_target_properties ( ${GALERA_NAME} PROPERTIES SOVERSION "${WSREP_INTERFACE_VERSION}" )
 
