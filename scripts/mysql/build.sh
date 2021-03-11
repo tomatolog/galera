@@ -89,6 +89,9 @@ fi
 if ! which "$CC" ; then echo "Can't execute $CC" ; exit 1; fi
 if ! which "$CXX"; then echo "Can't execute $CXX"; exit 1; fi
 
+CFLAGS=${CFLAGS:-""}
+CXXFLAGS=${CXXFLAGS:-""}
+
 export CC CXX LD_LIBRARY_PATH
 
 EXTRA_SYSROOT=${EXTRA_SYSROOT:-""}
@@ -448,7 +451,7 @@ then
             MYSQL_MM_VER="$MYSQL_MAJOR_VER$MYSQL_MINOR_VER"
 
             [ "$MYSQL_MM_VER" -ge "56" ] \
-            && MEMCACHED_OPT="-DWITH_LIBEVENT=yes -DWITH_INNODB_MEMCACHED=ON" \
+            && MEMCACHED_OPT="-DWITH_LIBEVENT=bundled -DWITH_INNODB_MEMCACHED=ON" \
             || MEMCACHED_OPT=""
 
             if [ "$MYSQL_MM_VER" -ge "57" ]
@@ -456,8 +459,10 @@ then
                 BOOST_OPT="-DWITH_BOOST=boost_$MYSQL_MM_VER"
                 [ "yes" = "$BOOTSTRAP" ] && \
                     BOOST_OPT="$BOOST_OPT -DDOWNLOAD_BOOST=1"
+                SSL_OPT="-DWITH_SSL=yes"
             else
                 BOOST_OPT=""
+                SSL_OPT="-DWITH_SSL=yes"
             fi
 
             if [ "$MYSQL_BUILD_DIR" != "$MYSQL_SRC" ]
@@ -475,16 +480,16 @@ then
             ln -sf $(which ccache || which $CXX) $(basename $CXX)
 
             cmake \
-                  -DCMAKE_C_COMPILER=$(basename $CC) \
-                  -DCMAKE_CXX_COMPILER=$(basename $CXX) \
-                  -DCMAKE_C_FLAGS=$(CFLAGS) \
-                  -DCMAKE_CXX_FLAGS=$(CXXFLAGS) \
+                  -DCMAKE_C_COMPILER=$(pwd)/$(basename $CC) \
+                  -DCMAKE_CXX_COMPILER=$(pwd)/$(basename $CXX) \
+                  -DCMAKE_C_FLAGS="$CFLAGS" \
+                  -DCMAKE_CXX_FLAGS="$CXXFLAGS" \
                   -DBUILD_CONFIG=mysql_release \
                   "${CMAKE_LAYOUT_OPTIONS[@]}" \
                   $BUILD_OPT \
                   -DWITH_WSREP=1 \
                   -DWITH_EXTRA_CHARSETS=all \
-                  -DWITH_SSL=yes \
+                  $SSL_OPT \
                   -DWITH_ZLIB=system \
                   -DMYSQL_MAINTAINER_MODE=0 \
                   $MEMCACHED_OPT \
@@ -493,9 +498,15 @@ then
             && make -j $JOBS -S && popd || exit 1
         fi
     else  # just recompile and relink with old configuration
-        [ $MYSQL_MAJOR != "5.1" ] && pushd $MYSQL_BUILD_DIR
-        make -j $JOBS -S > /dev/null
-        [ $MYSQL_MAJOR != "5.1" ] && popd
+        if [ $MYSQL_MAJOR = "5.1" ]
+        then
+            make -j $JOBS -S > /dev/null
+        else
+            pushd $MYSQL_BUILD_DIR
+            CC=$(pwd)/$(basename $CC) CXX=$(pwd)/$(basename $CXX) \
+            make -j $JOBS -S > /dev/null
+            popd
+        fi
     fi
 fi # SKIP_BUILD
 

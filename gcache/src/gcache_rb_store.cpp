@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2018 Codership Oy <info@codership.com>
+ * Copyright (C) 2010-2020 Codership Oy <info@codership.com>
  */
 
 #include "gcache_rb_store.hpp"
@@ -109,11 +109,15 @@ namespace gcache
         for (seqno2ptr_t::iterator i(i_begin); i != i_end;)
         {
             /* Skip purge from this seqno onwards. */
-            if (skip_purge(i->first))
+            if (skip_purge(seqno2ptr_.index(i)))
                 return false;
 
-            seqno2ptr_t::iterator j(i); ++i;
-            BufferHeader* const bh (ptr2BH (j->second));
+            seqno2ptr_t::iterator j(i);
+
+            /* advance i to next set element skipping holes */
+            do { ++i; } while ( i != i_end && !*i);
+
+            BufferHeader* const bh(ptr2BH(*j));
 
             if (gu_likely (BH_is_released(bh)))
             {
@@ -424,28 +428,26 @@ namespace gcache
 
         if (size_cache_ == size_free_) return;
 
-        /* Find the last seqno'd RB buffer. It is likely to be close to the
-         * end of released buffers chain. */
+        /* Invalidate seqnos for all ordered buffers (so that they can't be
+         * recovered on restart. Also find the last seqno'd RB buffer. */
         BufferHeader* bh(0);
 
-        for (seqno2ptr_t::reverse_iterator r(seqno2ptr_.rbegin());
-             r != seqno2ptr_.rend(); ++r)
+        for (seqno2ptr_t::iterator i(seqno2ptr_.begin());
+             i != seqno2ptr_.end(); ++i)
         {
-            BufferHeader* const b(ptr2BH(r->second));
+            BufferHeader* const b(ptr2BH(*i));
             if (BUFFER_IN_RB == b->store)
             {
 #ifndef NDEBUG
                 if (!BH_is_released(b))
                 {
-                    log_fatal << "Buffer "
-                              << reinterpret_cast<const void*>(r->second)
-                              << ", seqno_g " << b->seqno_g << ", seqno_d "
-                              << b->seqno_d << " is not released.";
+                    log_fatal << "Buffer " << b << " is not released.";
                     assert(0);
                 }
 #endif
+                b->seqno_g = SEQNO_NONE;
+                b->seqno_d = SEQNO_NONE;
                 bh = b;
-                break;
             }
         }
 
@@ -586,10 +588,10 @@ namespace gcache
             if (!seqno2ptr_.empty())
             {
                 os << PR_KEY_SEQNO_MIN << ' '
-                   << seqno2ptr_.begin()->first << '\n';
+                   << seqno2ptr_.index_front() << '\n';
 
                 os << PR_KEY_SEQNO_MAX << ' '
-                   << seqno2ptr_.rbegin()->first << '\n';
+                   << seqno2ptr_.index_back() << '\n';
 
                 os << PR_KEY_OFFSET << ' ' << first_ - preamble << '\n';
             }
@@ -697,15 +699,15 @@ namespace gcache
         write_preamble(true);
     }
 
-    int64_t
+    seqno_t
     RingBuffer::scan(off_t const offset, int const scan_step)
     {
         int segment_scans(0);
-        int64_t seqno_max(-1);
+        seqno_t seqno_max(SEQNO_ILL);
         uint8_t* ptr;
         BufferHeader* bh;
         size_t collision_count(0);
-        int64_t erase_up_to(-1);
+        seqno_t erase_up_to(-1);
         uint8_t* segment_start(start_);
         uint8_t* segment_end(end_ - sizeof(BufferHeader));
 
@@ -744,25 +746,35 @@ namespace gcache
                 bh->flags |= BUFFER_RELEASED;
                 bh->ctx    = this;
 
-                int64_t const seqno_g(bh->seqno_g);
+                seqno_t const seqno_g(bh->seqno_g);
 
                 if (gu_likely(seqno_g > 0))
                 {
-                    const std::pair<seqno2ptr_iter_t, bool>& res(
-                        seqno_g > seqno_max ? seqno_max = seqno_g,
-                        std::pair<seqno2ptr_iter_t, bool>(
-                            seqno2ptr_.insert(seqno2ptr_.end(),
-                                              seqno2ptr_pair_t(seqno_g, bh + 1)),
-                            true) :
-                        seqno2ptr_.insert(seqno2ptr_pair_t(seqno_g, bh + 1))
-                        );
+                    bool const collision(
+                        seqno_g > seqno_max
+                        ?
+                        (
+                            seqno_max = seqno_g,
+                            seqno2ptr_.insert(seqno_g, bh + 1), false
+                        )
+                        :
+                        (
+                            (seqno_g >= seqno2ptr_.index_begin() &&
+                             seqno2ptr_[seqno_g])
+                            ?
+                            true /* already exists */
+                            :
+                            (seqno2ptr_.insert(seqno_g, bh + 1), false)
+                         )
+                    );
 
-                    if (gu_unlikely (false == res.second))
+                    if (gu_unlikely(collision))
                     {
                         collision_count++;
 
                         /* compare two buffers */
-                        const void* const old_ptr(res.first->second);
+                        seqno2ptr_t::const_reference old_ptr
+                            (seqno2ptr_[seqno_g]);
                         BufferHeader* const old_bh
                             (old_ptr ? ptr2BH(old_ptr) : NULL);
 
@@ -793,7 +805,7 @@ namespace gcache
                         msg << "Attempt to reuse the same seqno: " << seqno_g
                             << ". New ptr = " << new_ptr << ", " << bh
                             << ", cs: " << gu::Hexdump(cs_new, sizeof(cs_new))
-                            << ", previous ptr = " << res.first->second;
+                            << ", previous ptr = " << old_ptr;
 
                         empty_buffer(bh); // this buffer is unusable
                         assert(BH_is_released(bh));
@@ -807,9 +819,6 @@ namespace gcache
                             {
                                 empty_buffer(old_bh);
                                 assert(BH_is_released(old_bh));
-                                res.first->second = NULL;
-                                /* mark entry as invalid, but don't remove from
-                                 * the map to block this seqno */
 
                                 if (erase_up_to < seqno_g) erase_up_to = seqno_g;
                             }
@@ -821,7 +830,6 @@ namespace gcache
                             log_info << "Contents are the same, discarding "
                                      << new_ptr;
                         } else {
-                            assert(NULL == res.first->second);
                             log_info << "Contents differ. Discarding both.";
                         }
                     }
@@ -920,13 +928,29 @@ namespace gcache
         return erase_up_to;
     }
 
+    static bool assert_ptr_seqno(seqno2ptr_t& map,
+                                 const void* const ptr,
+                                 seqno_t     const seqno)
+    {
+        const BufferHeader* const bh(ptr2BH(ptr));
+        if (bh->seqno_g != seqno)
+        {
+            assert(0);
+            map.clear(SEQNO_NONE);
+            return true;
+        }
+        return false;
+    }
+
     void
     RingBuffer::recover(off_t const offset, int version)
     {
         static const char* const diag_prefix = "Recovering GCache ring buffer: ";
 
         /* scan the buffer and populate seqno2ptr map */
-        int64_t const lower(scan(offset, version > 0 ? MemOps::ALIGNMENT : 1));
+        seqno_t const lowest(scan(offset, version > 0 ? MemOps::ALIGNMENT : 1)
+                             + 1);
+        /* lowest is the lowest valid seqno based on collisions during scan */
 
         if (!seqno2ptr_.empty())
         {
@@ -935,52 +959,44 @@ namespace gcache
 
             /* find the last gapless seqno sequence */
             seqno2ptr_t::reverse_iterator r(seqno2ptr_.rbegin());
-            seqno_t const seqno_max(r->first);
-            seqno_t       seqno_min(seqno2ptr_.begin()->first);
+            assert(*r);
+            seqno_t const seqno_max(seqno2ptr_.index_back());
+            seqno_t       seqno_min(seqno2ptr_.index_front());
 
-            if (lower > 0
-                /* collisions detected */ ||
-                seqno2ptr_t::size_type(seqno_max - seqno_min + 1) >
-                seqno2ptr_.size()
-                /* not all seqnos present */)
+            /* need to search for seqno gaps */
+            assert(seqno_max >= lowest);
+            if (lowest == seqno_max)
             {
-                /* need to search for seqno gaps */
-                assert(seqno_max >= lower);
-                if (lower == seqno_max)
-                {
-                    seqno2ptr_.clear();
-                    goto full_reset;
-                }
-
-                seqno_min = seqno_max;
-                ++r;
-                for (; r != seqno2ptr_.rend() && r->first > lower; ++r)
-                {
-                    assert(r->second != NULL);
-
-                    if (r->first + 1 == seqno_min)
-                        seqno_min = r->first;
-                    else
-                        break;
-                }
+                seqno2ptr_.clear(SEQNO_NONE);
+                goto full_reset;
             }
-            else
+
+            seqno_min = seqno_max;
+            if (assert_ptr_seqno(seqno2ptr_, *r, seqno_min)) goto full_reset;
+
+            /* At this point r and seqno_min both point at the last element in
+             * the map. Scan downwards and bail out on the first hole.*/
+            ++r;
+            for (; r != seqno2ptr_.rend() && *r && seqno_min > lowest; ++r)
             {
-                r = seqno2ptr_.rend();
+                --seqno_min;
+                if (assert_ptr_seqno(seqno2ptr_, *r, seqno_min)) goto full_reset;
             }
+            /* At this point r points to one below seqno_min */
 
             log_info << diag_prefix << "found gapless sequence " << seqno_min
                      << '-' << seqno_max;
 
             if (r != seqno2ptr_.rend())
             {
+                assert(seqno_min > seqno2ptr_.index_begin());
                 log_info << diag_prefix << "discarding seqnos "
-                         << seqno2ptr_.begin()->first << '-' << r->first;
+                         << seqno2ptr_.index_begin() << '-' << seqno_min - 1;
 
                 /* clear up seqno2ptr map */
                 for (; r != seqno2ptr_.rend(); ++r)
                 {
-                    if (r->second) empty_buffer(ptr2BH(r->second));
+                    if (*r) empty_buffer(ptr2BH(*r));
                 }
                 seqno2ptr_.erase(seqno2ptr_.begin(), seqno2ptr_.find(seqno_min));
             }
@@ -1002,7 +1018,7 @@ namespace gcache
 
             /* trim next_: start with the last seqno and scan forward up to the
              * current next_. Update to the end of the last non-empty buffer. */
-            bh = ptr2BH(seqno2ptr_[seqno_max]);
+            bh = ptr2BH(seqno2ptr_.back());
             BufferHeader* last_bh(bh);
             while (bh != BH_cast(next_))
             {
@@ -1046,10 +1062,6 @@ namespace gcache
             else assert(size_trail_ >= sizeof(BufferHeader));
 
             estimate_space();
-            /* On graceful shutdown all the active buffers are released
-            so on recovery size_used_ = 0.
-            size_cache_ = size_free_ + size_used_ + releasebutnotdiscarded */
-            size_used_ = 0;
 
             /* now discard all the locked-in buffers (see seqno_reset()) */
             gu::Progress<size_t> progress(
@@ -1064,10 +1076,21 @@ namespace gcache
                 if (gu_likely(bh->size > 0))
                 {
                     total++;
-                    if (gu_unlikely(SEQNO_ILL == bh->seqno_g))
+
+                    if (gu_likely(bh->seqno_g > 0))
                     {
+                        free(bh); // on recovery no buffer is used
+                    }
+                    else
+                    {
+                        /* anything that is not ordered must be discarded */
+                        assert(SEQNO_NONE == bh->seqno_g ||
+                               SEQNO_ILL  == bh->seqno_g);
                         locked++;
+                        empty_buffer(bh);
                         discard(bh);
+                        size_used_ -= bh->size;
+                        // size_free_ is taken care of in discard()
                     }
 
                     bh = BH_next(bh);
@@ -1082,10 +1105,13 @@ namespace gcache
 
             progress.finish();
 
+            /* No buffers on recovery should be in used state */
+            assert(0 == size_used_);
+
             log_info << "GCache DEBUG: RingBuffer::recover(): found "
                      << locked << '/' << total << " locked buffers";
-            log_info << "GCache DEBUG: RingBuffer::recover(): used space: "
-                     << size_used_ << '/' << size_cache_;
+            log_info << "GCache DEBUG: RingBuffer::recover(): free space: "
+                     << size_free_ << '/' << size_cache_;
 
             assert_sizes();
         }

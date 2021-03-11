@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2010-2015 Codership Oy <info@codership.com>
+// Copyright (C) 2010-2020 Codership Oy <info@codership.com>
 //
 
 #include "replicator_smm.hpp"
@@ -20,33 +20,7 @@ ReplicatorSMM::state_transfer_required(const wsrep_view_info_t& view_info)
             wsrep_seqno_t const group_seqno(view_info.state_id.seqno);
             wsrep_seqno_t const local_seqno(STATE_SEQNO());
 
-            if (state_() >= S_JOINING) /* See #442 - S_JOINING should be
-                                          a valid state here */
-            {
-                return (local_seqno < group_seqno);
-            }
-            else
-            {
-                if (local_seqno > group_seqno)
-                {
-                    // Local state sequence number is greater than group
-                    // sequence number: states diverged on SST. We cannot
-                    // move server forward (with local_seqno > group_seqno)
-                    // to avoid potential data loss, and hence will have
-                    // to shut it down. User must to remove state file and
-                    // then restart server, if he/she wish to continue:
-                    close();
-                    gu_throw_fatal
-                        << "Local state seqno (" << local_seqno
-                        << ") is greater than group seqno (" <<group_seqno
-                        << "): states diverged. Aborting to avoid potential "
-                        << "data loss. Remove '" << state_file_
-                        << "' file and restart if you wish to continue.";
-                    abort();
-                }
-
-                return (local_seqno != group_seqno);
-            }
+            return (local_seqno < group_seqno);
         }
 
         return true;
@@ -189,7 +163,7 @@ StateRequest_v1::StateRequest_v1 (
                                << ") unrepresentable";
 
     if (ist_req_len > INT32_MAX || ist_req_len < 0)
-        gu_throw_error (EMSGSIZE) << "IST request length (" << sst_req_len
+        gu_throw_error (EMSGSIZE) << "IST request length (" << ist_req_len
                                << ") unrepresentable";
 
     char* ptr(req_);
@@ -338,18 +312,8 @@ ReplicatorSMM::donate_sst(void* const         recv_ctx,
     wsrep_cb_status const err(sst_donate_cb_(app_ctx_, recv_ctx,
                                              streq.sst_req(), streq.sst_len(),
                                              &state_id, 0, 0, bypass));
-
-    /* The fix to codership/galera#284 may break backward comatibility due to
-     * different (now correct) interpretation of retrun value. Default to old
-     * interpretation which is forward compatible with the new one. */
-#if NO_BACKWARD_COMPATIBILITY
     wsrep_seqno_t const ret
         (WSREP_CB_SUCCESS == err ? state_id.seqno : -ECANCELED);
-#else
-    wsrep_seqno_t const ret
-        (int(err) >= 0 ? state_id.seqno : int(err));
-#endif /* NO_BACKWARD_COMPATIBILITY */
-
     if (ret < 0)
     {
         log_error << "SST " << (bypass ? "bypass " : "") << "failed: " << err;
@@ -411,6 +375,16 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
             {
                 log_info << "IST request: " << istr;
 
+                struct sgl
+                {
+                    gcache::GCache& gcache_;
+                    bool            unlock_;
+
+                    sgl(gcache::GCache& cache) : gcache_(cache), unlock_(false){}
+                    ~sgl() { if (unlock_) gcache_.seqno_unlock(); }
+                }
+                seqno_lock_guard(gcache_);
+
                 try
                 {
                     gcache_.seqno_lock(istr.last_applied() + 1);
@@ -421,6 +395,7 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
                     GU_DBUG_EXECUTE("simulate_seqno_shift",
                                     throw gu::NotFound(););
 #endif
+                    seqno_lock_guard.unlock_ = true;
                 }
                 catch(gu::NotFound& nf)
                 {
@@ -477,6 +452,9 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
                                          istr.last_applied() + 1,
                                          cc_seqno_,
                                          protocol_version_);
+
+                        // seqno will be unlocked when sender exists
+                        seqno_lock_guard.unlock_ = false;
                     }
                     catch (gu::Exception& e)
                     {
@@ -814,10 +792,11 @@ ReplicatorSMM::request_state_transfer (void* recv_ctx,
         st_.mark_unsafe();
     }
 
+    GU_DBUG_SYNC_WAIT("before_send_state_request");
+
     // We must set SST state to "wait" before
     // sending request, to avoid racing condition
     // in the sst_received.
-
     sst_state_ = SST_WAIT;
 
     // We should not wait for completion of the SST or to handle it
@@ -840,6 +819,9 @@ ReplicatorSMM::request_state_transfer (void* recv_ctx,
     GU_DBUG_SYNC_WAIT("after_send_state_request");
 
     state_.shift_to(S_JOINING);
+
+    GU_DBUG_SYNC_WAIT("after_shift_to_joining");
+
     /* while waiting for state transfer to complete is a good point
      * to reset gcache, since it may involve some IO too */
     gcache_.seqno_reset(to_gu_uuid(group_uuid), group_seqno);
@@ -903,7 +885,8 @@ ReplicatorSMM::request_state_transfer (void* recv_ctx,
                 commit_monitor_.set_initial_position(sst_seqno_);
             }
 
-            log_debug << "Installed new state: " << state_uuid_ << ":" << sst_seqno_;
+            log_debug << "Installed new state: " << state_uuid_ << ":"
+                      << sst_seqno_;
         }
     }
     else

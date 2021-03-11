@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2014 Codership Oy <info@codership.com>
+ * Copyright (C) 2009-2020 Codership Oy <info@codership.com>
  */
 
 #include "check_gcomm.hpp"
@@ -20,34 +20,6 @@
 #include <list>
 #include <cstdlib>
 #include <vector>
-
-//
-// run_all_pc_tests is set to true by default. To disable pc tests
-// which use real TCP transport or depend on wall clock,
-// set GALERA_TEST_DETERMINISTIC env
-// variable before running pc test suite.
-//
-static class run_all_pc_tests
-{
-public:
-    run_all_pc_tests()
-        : run_all_tests_()
-    {
-        if (::getenv("GALERA_TEST_DETERMINISTIC"))
-        {
-            run_all_tests_ = false;
-        }
-        else
-        {
-            run_all_tests_ = true;
-        }
-    }
-
-    bool operator()() const { return run_all_tests_; }
-
-private:
-    bool run_all_tests_;
-} run_all_pc_tests;
 
 using namespace std;
 using namespace std::rel_ops;
@@ -110,7 +82,7 @@ START_TEST(test_pc_messages)
 
     expt_size = 4 + 4;
     check_serialization(pcu, expt_size, UserMessage(-1, -1U));
-    fail_unless(pcu.serial_size() % 4 == 0);
+    ck_assert(pcu.serial_size() % 4 == 0);
 }
 END_TEST
 
@@ -140,7 +112,7 @@ public:
         {
             const View& view(um.view());
             log_info << view;
-            fail_unless(view.type() == V_PRIM ||
+            ck_assert(view.type() == V_PRIM ||
                         view.type() == V_NON_PRIM);
             views_.push_back(View(view));
         }
@@ -151,7 +123,7 @@ public:
         byte_t pl[4] = {1, 2, 3, 4};
         Buffer buf(pl, pl + sizeof(pl));
         Datagram dg(buf);
-        fail_unless(send_down(dg, ProtoDownMeta()) == 0);
+        ck_assert(send_down(dg, ProtoDownMeta()) == 0);
     }
 private:
 
@@ -176,7 +148,7 @@ void get_msg(Datagram* rb, Message* msg, bool release = true)
         // assert(rb->get_header().size() == 0 && rb->get_offset() == 0);
         const byte_t* begin(gcomm::begin(*rb));
         const size_t available(gcomm::available(*rb));
-        fail_unless(msg->unserialize(begin,
+        ck_assert(msg->unserialize(begin,
                                      available, 0) != 0);
         log_info << "get_msg: " << msg->to_string();
         if (release)
@@ -196,41 +168,41 @@ void single_boot(int version, PCUser* pu1)
     pu1->pc()->connect(true);
     // pu1->pc()->shift_to(Proto::S_JOINING);
     pu1->pc()->handle_up(0, Datagram(), um1);
-    fail_unless(pu1->pc()->state() == Proto::S_TRANS);
+    ck_assert(pu1->pc()->state() == Proto::S_TRANS);
 
     View vr1(version, ViewId(V_REG, pu1->uuid(), 1));
     vr1.add_member(pu1->uuid(), 0);
     ProtoUpMeta um2(UUID::nil(), ViewId(), &vr1);
     pu1->pc()->handle_up(0, Datagram(), um2);
-    fail_unless(pu1->pc()->state() == Proto::S_STATES_EXCH);
+    ck_assert(pu1->pc()->state() == Proto::S_STATES_EXCH);
 
     Datagram* rb = pu1->tp()->out();
-    fail_unless(rb != 0);
+    ck_assert(rb != 0);
     Message sm1;
     get_msg(rb, &sm1);
-    fail_unless(sm1.type() == Message::PC_T_STATE);
-    fail_unless(sm1.node_map().size() == 1);
+    ck_assert(sm1.type() == Message::PC_T_STATE);
+    ck_assert(sm1.node_map().size() == 1);
     {
         const pc::Node& pi1 = pc::NodeMap::value(sm1.node_map().begin());
-        fail_unless(pi1.prim() == true);
-        fail_unless(pi1.last_prim() == ViewId(V_PRIM, pu1->uuid(), 0));
+        ck_assert(pi1.prim() == true);
+        ck_assert(pi1.last_prim() == ViewId(V_PRIM, pu1->uuid(), 0));
     }
     pu1->pc()->handle_msg(sm1, Datagram(), sum1);
-    fail_unless(pu1->pc()->state() == Proto::S_INSTALL);
+    ck_assert(pu1->pc()->state() == Proto::S_INSTALL);
 
     rb = pu1->tp()->out();
-    fail_unless(rb != 0);
+    ck_assert(rb != 0);
     Message im1;
     get_msg(rb, &im1);
-    fail_unless(im1.type() == Message::PC_T_INSTALL);
-    fail_unless(im1.node_map().size() == 1);
+    ck_assert(im1.type() == Message::PC_T_INSTALL);
+    ck_assert(im1.node_map().size() == 1);
     {
         const pc::Node& pi1 = pc::NodeMap::value(im1.node_map().begin());
-        fail_unless(pi1.prim() == true);
-        fail_unless(pi1.last_prim() == ViewId(V_PRIM, pu1->uuid(), 0));
+        ck_assert(pi1.prim() == true);
+        ck_assert(pi1.last_prim() == ViewId(V_PRIM, pu1->uuid(), 0));
     }
     pu1->pc()->handle_msg(im1, Datagram(), sum1);
-    fail_unless(pu1->pc()->state() == Proto::S_PRIM);
+    ck_assert(pu1->pc()->state() == Proto::S_PRIM);
 }
 
 START_TEST(test_pc_view_changes_single)
@@ -257,14 +229,14 @@ static void double_boot(int version, PCUser* pu1, PCUser* pu2)
     View t11(version, ViewId(V_TRANS, pu1->pc()->current_view().id()));
     t11.add_member(pu1->uuid(), 0);
     pu1->pc()->handle_view(t11);
-    fail_unless(pu1->pc()->state() == Proto::S_TRANS);
+    ck_assert(pu1->pc()->state() == Proto::S_TRANS);
 
     View t12(version, ViewId(V_TRANS, pu2->uuid(), 0));
     t12.add_member(pu2->uuid(), 0);
     // pu2->pc()->shift_to(Proto::S_JOINING);
     pu2->pc()->connect(false);
     pu2->pc()->handle_view(t12);
-    fail_unless(pu2->pc()->state() == Proto::S_TRANS);
+    ck_assert(pu2->pc()->state() == Proto::S_TRANS);
 
     View r1(version, ViewId(V_REG,
                    pu1->uuid(),
@@ -272,41 +244,41 @@ static void double_boot(int version, PCUser* pu1, PCUser* pu2)
     r1.add_member(pu1->uuid(), 0);
     r1.add_member(pu2->uuid(), 0);
     pu1->pc()->handle_view(r1);
-    fail_unless(pu1->pc()->state() == Proto::S_STATES_EXCH);
+    ck_assert(pu1->pc()->state() == Proto::S_STATES_EXCH);
 
     pu2->pc()->handle_view(r1);
-    fail_unless(pu2->pc()->state() == Proto::S_STATES_EXCH);
+    ck_assert(pu2->pc()->state() == Proto::S_STATES_EXCH);
 
     Datagram* rb = pu1->tp()->out();
-    fail_unless(rb != 0);
+    ck_assert(rb != 0);
     Message sm1;
     get_msg(rb, &sm1);
-    fail_unless(sm1.type() == Message::PC_T_STATE);
+    ck_assert(sm1.type() == Message::PC_T_STATE);
 
     rb = pu2->tp()->out();
-    fail_unless(rb != 0);
+    ck_assert(rb != 0);
     Message sm2;
     get_msg(rb, &sm2);
-    fail_unless(sm2.type() == Message::PC_T_STATE);
+    ck_assert(sm2.type() == Message::PC_T_STATE);
 
     rb = pu1->tp()->out();
-    fail_unless(rb == 0);
+    ck_assert(rb == 0);
     rb = pu2->tp()->out();
-    fail_unless(rb == 0);
+    ck_assert(rb == 0);
 
     pu1->pc()->handle_msg(sm1, Datagram(), pum1);
     rb = pu1->tp()->out();
-    fail_unless(rb == 0);
-    fail_unless(pu1->pc()->state() == Proto::S_STATES_EXCH);
+    ck_assert(rb == 0);
+    ck_assert(pu1->pc()->state() == Proto::S_STATES_EXCH);
     pu1->pc()->handle_msg(sm2, Datagram(), pum2);
-    fail_unless(pu1->pc()->state() == Proto::S_INSTALL);
+    ck_assert(pu1->pc()->state() == Proto::S_INSTALL);
 
     pu2->pc()->handle_msg(sm1, Datagram(), pum1);
     rb = pu2->tp()->out();
-    fail_unless(rb == 0);
-    fail_unless(pu2->pc()->state() == Proto::S_STATES_EXCH);
+    ck_assert(rb == 0);
+    ck_assert(pu2->pc()->state() == Proto::S_STATES_EXCH);
     pu2->pc()->handle_msg(sm2, Datagram(), pum2);
-    fail_unless(pu2->pc()->state() == Proto::S_INSTALL);
+    ck_assert(pu2->pc()->state() == Proto::S_INSTALL);
 
     Message im1;
     UUID imsrc;
@@ -321,25 +293,25 @@ static void double_boot(int version, PCUser* pu1, PCUser* pu2)
         imsrc = pu2->uuid();
     }
 
-    fail_unless(rb != 0);
+    ck_assert(rb != 0);
     get_msg(rb, &im1);
-    fail_unless(im1.type() == Message::PC_T_INSTALL);
+    ck_assert(im1.type() == Message::PC_T_INSTALL);
 
-    fail_unless(pu1->tp()->out() == 0);
-    fail_unless(pu2->tp()->out() == 0);
+    ck_assert(pu1->tp()->out() == 0);
+    ck_assert(pu2->tp()->out() == 0);
 
     ProtoUpMeta ipum(imsrc);
     pu1->pc()->handle_msg(im1, Datagram(), ipum);
-    fail_unless(pu1->pc()->state() == Proto::S_PRIM);
+    ck_assert(pu1->pc()->state() == Proto::S_PRIM);
 
     pu2->pc()->handle_msg(im1, Datagram(), ipum);
-    fail_unless(pu2->pc()->state() == Proto::S_PRIM);
+    ck_assert(pu2->pc()->state() == Proto::S_PRIM);
 }
 
 // Form PC for three instances.
 static void triple_boot(int version, PCUser* pu1, PCUser* pu2, PCUser* pu3)
 {
-    fail_unless(pu1->uuid() < pu2->uuid() && pu2->uuid() < pu3->uuid());
+    ck_assert(pu1->uuid() < pu2->uuid() && pu2->uuid() < pu3->uuid());
 
     // trans views
     {
@@ -351,8 +323,8 @@ static void triple_boot(int version, PCUser* pu1, PCUser* pu2, PCUser* pu3)
         pu1->pc()->handle_up(0, Datagram(), trum12);
         pu2->pc()->handle_up(0, Datagram(), trum12);
 
-        fail_unless(pu1->pc()->state() == Proto::S_TRANS);
-        fail_unless(pu2->pc()->state() == Proto::S_TRANS);
+        ck_assert(pu1->pc()->state() == Proto::S_TRANS);
+        ck_assert(pu2->pc()->state() == Proto::S_TRANS);
 
         pu3->pc()->connect(false);
         View tr3(version, ViewId(V_TRANS, pu3->uuid(), 0));
@@ -360,7 +332,7 @@ static void triple_boot(int version, PCUser* pu1, PCUser* pu2, PCUser* pu3)
         ProtoUpMeta trum3(UUID::nil(), ViewId(), &tr3);
         pu3->pc()->handle_up(0, Datagram(), trum3);
 
-        fail_unless(pu3->pc()->state() == Proto::S_TRANS);
+        ck_assert(pu3->pc()->state() == Proto::S_TRANS);
     }
 
     // reg view
@@ -377,52 +349,52 @@ static void triple_boot(int version, PCUser* pu1, PCUser* pu2, PCUser* pu3)
         pu2->pc()->handle_up(0, Datagram(), pum);
         pu3->pc()->handle_up(0, Datagram(), pum);
 
-        fail_unless(pu1->pc()->state() == Proto::S_STATES_EXCH);
-        fail_unless(pu2->pc()->state() == Proto::S_STATES_EXCH);
-        fail_unless(pu3->pc()->state() == Proto::S_STATES_EXCH);
+        ck_assert(pu1->pc()->state() == Proto::S_STATES_EXCH);
+        ck_assert(pu2->pc()->state() == Proto::S_STATES_EXCH);
+        ck_assert(pu3->pc()->state() == Proto::S_STATES_EXCH);
 
     }
 
     // states exch
     {
         Datagram* dg(pu1->tp()->out());
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pu1->pc()->handle_up(0, *dg, ProtoUpMeta(pu1->uuid()));
         pu2->pc()->handle_up(0, *dg, ProtoUpMeta(pu1->uuid()));
         pu3->pc()->handle_up(0, *dg, ProtoUpMeta(pu1->uuid()));
         delete dg;
 
         dg = pu2->tp()->out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pu1->pc()->handle_up(0, *dg, ProtoUpMeta(pu2->uuid()));
         pu2->pc()->handle_up(0, *dg, ProtoUpMeta(pu2->uuid()));
         pu3->pc()->handle_up(0, *dg, ProtoUpMeta(pu2->uuid()));
         delete dg;
 
         dg = pu3->tp()->out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pu1->pc()->handle_up(0, *dg, ProtoUpMeta(pu3->uuid()));
         pu2->pc()->handle_up(0, *dg, ProtoUpMeta(pu3->uuid()));
         pu3->pc()->handle_up(0, *dg, ProtoUpMeta(pu3->uuid()));
         delete dg;
 
-        fail_unless(pu1->pc()->state() == Proto::S_INSTALL);
-        fail_unless(pu2->pc()->state() == Proto::S_INSTALL);
-        fail_unless(pu3->pc()->state() == Proto::S_INSTALL);
+        ck_assert(pu1->pc()->state() == Proto::S_INSTALL);
+        ck_assert(pu2->pc()->state() == Proto::S_INSTALL);
+        ck_assert(pu3->pc()->state() == Proto::S_INSTALL);
     }
 
     // install
     {
         Datagram* dg(pu1->tp()->out());
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pu1->pc()->handle_up(0, *dg, ProtoUpMeta(pu1->uuid()));
         pu2->pc()->handle_up(0, *dg, ProtoUpMeta(pu1->uuid()));
         pu3->pc()->handle_up(0, *dg, ProtoUpMeta(pu1->uuid()));
         delete dg;
 
-        fail_unless(pu1->pc()->state() == Proto::S_PRIM);
-        fail_unless(pu2->pc()->state() == Proto::S_PRIM);
-        fail_unless(pu3->pc()->state() == Proto::S_PRIM);
+        ck_assert(pu1->pc()->state() == Proto::S_PRIM);
+        ck_assert(pu2->pc()->state() == Proto::S_PRIM);
+        ck_assert(pu3->pc()->state() == Proto::S_PRIM);
     }
 }
 
@@ -453,46 +425,46 @@ START_TEST(test_pc_view_changes_double)
     View tnp(0, ViewId(V_TRANS, pu1.pc()->current_view().id()));
     tnp.add_member(uuid1, 0);
     pu1.pc()->handle_view(tnp);
-    fail_unless(pu1.pc()->state() == Proto::S_TRANS);
+    ck_assert(pu1.pc()->state() == Proto::S_TRANS);
     View reg(0, ViewId(V_REG, uuid1,
                     pu1.pc()->current_view().id().seq() + 1));
     reg.add_member(uuid1, 0);
     pu1.pc()->handle_view(reg);
-    fail_unless(pu1.pc()->state() == Proto::S_STATES_EXCH);
+    ck_assert(pu1.pc()->state() == Proto::S_STATES_EXCH);
     rb = pu1.tp()->out();
-    fail_unless(rb != 0);
+    ck_assert(rb != 0);
     pu1.pc()->handle_up(0, *rb, ProtoUpMeta(uuid1));
-    fail_unless(pu1.pc()->state() == Proto::S_NON_PRIM);
+    ck_assert(pu1.pc()->state() == Proto::S_NON_PRIM);
     delete rb;
 
     View tpv2(0, ViewId(V_TRANS, pu2.pc()->current_view().id()));
     tpv2.add_member(uuid2, 0);
     tpv2.add_left(uuid1, 0);
     pu2.pc()->handle_view(tpv2);
-    fail_unless(pu2.pc()->state() == Proto::S_TRANS);
-    fail_unless(pu2.tp()->out() == 0);
+    ck_assert(pu2.pc()->state() == Proto::S_TRANS);
+    ck_assert(pu2.tp()->out() == 0);
 
     View rp2(0, ViewId(V_REG, uuid2,
                        pu1.pc()->current_view().id().seq() + 1));
     rp2.add_member(uuid2, 0);
     rp2.add_left(uuid1, 0);
     pu2.pc()->handle_view(rp2);
-    fail_unless(pu2.pc()->state() == Proto::S_STATES_EXCH);
+    ck_assert(pu2.pc()->state() == Proto::S_STATES_EXCH);
     rb = pu2.tp()->out();
-    fail_unless(rb != 0);
+    ck_assert(rb != 0);
     Message sm2;
     get_msg(rb, &sm2);
-    fail_unless(sm2.type() == Message::PC_T_STATE);
-    fail_unless(pu2.tp()->out() == 0);
+    ck_assert(sm2.type() == Message::PC_T_STATE);
+    ck_assert(pu2.tp()->out() == 0);
     pu2.pc()->handle_msg(sm2, Datagram(), pum2);
-    fail_unless(pu2.pc()->state() == Proto::S_INSTALL);
+    ck_assert(pu2.pc()->state() == Proto::S_INSTALL);
     rb = pu2.tp()->out();
-    fail_unless(rb != 0);
+    ck_assert(rb != 0);
     Message im2;
     get_msg(rb, &im2);
-    fail_unless(im2.type() == Message::PC_T_INSTALL);
+    ck_assert(im2.type() == Message::PC_T_INSTALL);
     pu2.pc()->handle_msg(im2, Datagram(), pum2);
-    fail_unless(pu2.pc()->state() == Proto::S_PRIM);
+    ck_assert(pu2.pc()->state() == Proto::S_PRIM);
 
 }
 END_TEST
@@ -547,8 +519,8 @@ START_TEST(test_pc_state1)
     // n2: JOINING -> STATES_EXCH -> RTR -> PRIM
     double_boot(0, &pu1, &pu2);
 
-    fail_unless(pu1.pc()->state() == Proto::S_PRIM);
-    fail_unless(pu2.pc()->state() == Proto::S_PRIM);
+    ck_assert(pu1.pc()->state() == Proto::S_PRIM);
+    ck_assert(pu2.pc()->state() == Proto::S_PRIM);
 
     // PRIM -> TRANS -> STATES_EXCH -> RTR -> TRANS -> STATES_EXCH -> RTR ->PRIM
     View tr1(0, ViewId(V_TRANS, pu1.pc()->current_view().id()));
@@ -557,11 +529,11 @@ START_TEST(test_pc_state1)
     pu1.pc()->handle_view(tr1);
     pu2.pc()->handle_view(tr1);
 
-    fail_unless(pu1.pc()->state() == Proto::S_TRANS);
-    fail_unless(pu2.pc()->state() == Proto::S_TRANS);
+    ck_assert(pu1.pc()->state() == Proto::S_TRANS);
+    ck_assert(pu2.pc()->state() == Proto::S_TRANS);
 
-    fail_unless(pu1.tp()->out() == 0);
-    fail_unless(pu2.tp()->out() == 0);
+    ck_assert(pu1.tp()->out() == 0);
+    ck_assert(pu2.tp()->out() == 0);
 
     View reg2(0, ViewId(V_REG, uuid1,
                      pu1.pc()->current_view().id().seq() + 1));
@@ -570,23 +542,23 @@ START_TEST(test_pc_state1)
     pu1.pc()->handle_view(reg2);
     pu2.pc()->handle_view(reg2);
 
-    fail_unless(pu1.pc()->state() == Proto::S_STATES_EXCH);
-    fail_unless(pu2.pc()->state() == Proto::S_STATES_EXCH);
+    ck_assert(pu1.pc()->state() == Proto::S_STATES_EXCH);
+    ck_assert(pu2.pc()->state() == Proto::S_STATES_EXCH);
 
     Message msg;
     get_msg(pu1.tp()->out(), &msg);
     pu1.pc()->handle_msg(msg, Datagram(), pum1);
     pu2.pc()->handle_msg(msg, Datagram(), pum1);
 
-    fail_unless(pu1.pc()->state() == Proto::S_STATES_EXCH);
-    fail_unless(pu2.pc()->state() == Proto::S_STATES_EXCH);
+    ck_assert(pu1.pc()->state() == Proto::S_STATES_EXCH);
+    ck_assert(pu2.pc()->state() == Proto::S_STATES_EXCH);
 
     get_msg(pu2.tp()->out(), &msg);
     pu1.pc()->handle_msg(msg, Datagram(), pum2);
     pu2.pc()->handle_msg(msg, Datagram(), pum2);
 
-    fail_unless(pu1.pc()->state() == Proto::S_INSTALL);
-    fail_unless(pu2.pc()->state() == Proto::S_INSTALL);
+    ck_assert(pu1.pc()->state() == Proto::S_INSTALL);
+    ck_assert(pu2.pc()->state() == Proto::S_INSTALL);
 
     View tr2(0, ViewId(V_TRANS, pu1.pc()->current_view().id()));
     tr2.add_member(uuid1, 0);
@@ -596,8 +568,8 @@ START_TEST(test_pc_state1)
     pu2.pc()->handle_view(tr2);
 
 
-    fail_unless(pu1.pc()->state() == Proto::S_TRANS);
-    fail_unless(pu2.pc()->state() == Proto::S_TRANS);
+    ck_assert(pu1.pc()->state() == Proto::S_TRANS);
+    ck_assert(pu2.pc()->state() == Proto::S_TRANS);
 
     Message im;
 
@@ -615,8 +587,8 @@ START_TEST(test_pc_state1)
     }
 
 
-    fail_unless(pu1.pc()->state() == Proto::S_TRANS);
-    fail_unless(pu2.pc()->state() == Proto::S_TRANS);
+    ck_assert(pu1.pc()->state() == Proto::S_TRANS);
+    ck_assert(pu2.pc()->state() == Proto::S_TRANS);
 
 
     View reg3(0, ViewId(V_REG, uuid1,
@@ -628,22 +600,22 @@ START_TEST(test_pc_state1)
     pu1.pc()->handle_view(reg3);
     pu2.pc()->handle_view(reg3);
 
-    fail_unless(pu1.pc()->state() == Proto::S_STATES_EXCH);
-    fail_unless(pu2.pc()->state() == Proto::S_STATES_EXCH);
+    ck_assert(pu1.pc()->state() == Proto::S_STATES_EXCH);
+    ck_assert(pu2.pc()->state() == Proto::S_STATES_EXCH);
 
     get_msg(pu1.tp()->out(), &msg);
     pu1.pc()->handle_msg(msg, Datagram(), pum1);
     pu2.pc()->handle_msg(msg, Datagram(), pum1);
 
-    fail_unless(pu1.pc()->state() == Proto::S_STATES_EXCH);
-    fail_unless(pu2.pc()->state() == Proto::S_STATES_EXCH);
+    ck_assert(pu1.pc()->state() == Proto::S_STATES_EXCH);
+    ck_assert(pu2.pc()->state() == Proto::S_STATES_EXCH);
 
     get_msg(pu2.tp()->out(), &msg);
     pu1.pc()->handle_msg(msg, Datagram(), pum2);
     pu2.pc()->handle_msg(msg, Datagram(), pum2);
 
-    fail_unless(pu1.pc()->state() == Proto::S_INSTALL);
-    fail_unless(pu2.pc()->state() == Proto::S_INSTALL);
+    ck_assert(pu1.pc()->state() == Proto::S_INSTALL);
+    ck_assert(pu2.pc()->state() == Proto::S_INSTALL);
 
     if (uuid1 < uuid2)
     {
@@ -658,8 +630,8 @@ START_TEST(test_pc_state1)
         pu2.pc()->handle_msg(im, Datagram(), pum2);
     }
 
-    fail_unless(pu1.pc()->state() == Proto::S_PRIM);
-    fail_unless(pu2.pc()->state() == Proto::S_PRIM);
+    ck_assert(pu1.pc()->state() == Proto::S_PRIM);
+    ck_assert(pu2.pc()->state() == Proto::S_PRIM);
 
 }
 END_TEST
@@ -687,8 +659,8 @@ START_TEST(test_pc_state2)
     // n2: JOINING -> STATES_EXCH -> RTR -> PRIM
     double_boot(0, &pu1, &pu2);
 
-    fail_unless(pu1.pc()->state() == Proto::S_PRIM);
-    fail_unless(pu2.pc()->state() == Proto::S_PRIM);
+    ck_assert(pu1.pc()->state() == Proto::S_PRIM);
+    ck_assert(pu2.pc()->state() == Proto::S_PRIM);
 
     // PRIM -> TRANS -> STATES_EXCH -> TRANS -> STATES_EXCH -> RTR -> PRIM
     View tr1(0, ViewId(V_TRANS, pu1.pc()->current_view().id()));
@@ -697,11 +669,11 @@ START_TEST(test_pc_state2)
     pu1.pc()->handle_view(tr1);
     pu2.pc()->handle_view(tr1);
 
-    fail_unless(pu1.pc()->state() == Proto::S_TRANS);
-    fail_unless(pu2.pc()->state() == Proto::S_TRANS);
+    ck_assert(pu1.pc()->state() == Proto::S_TRANS);
+    ck_assert(pu2.pc()->state() == Proto::S_TRANS);
 
-    fail_unless(pu1.tp()->out() == 0);
-    fail_unless(pu2.tp()->out() == 0);
+    ck_assert(pu1.tp()->out() == 0);
+    ck_assert(pu2.tp()->out() == 0);
 
     View reg2(0, ViewId(V_REG, uuid1,
                         pu1.pc()->current_view().id().seq() + 1));
@@ -710,8 +682,8 @@ START_TEST(test_pc_state2)
     pu1.pc()->handle_view(reg2);
     pu2.pc()->handle_view(reg2);
 
-    fail_unless(pu1.pc()->state() == Proto::S_STATES_EXCH);
-    fail_unless(pu2.pc()->state() == Proto::S_STATES_EXCH);
+    ck_assert(pu1.pc()->state() == Proto::S_STATES_EXCH);
+    ck_assert(pu2.pc()->state() == Proto::S_STATES_EXCH);
 
 
 
@@ -723,23 +695,23 @@ START_TEST(test_pc_state2)
     pu2.pc()->handle_view(tr2);
 
 
-    fail_unless(pu1.pc()->state() == Proto::S_TRANS);
-    fail_unless(pu2.pc()->state() == Proto::S_TRANS);
+    ck_assert(pu1.pc()->state() == Proto::S_TRANS);
+    ck_assert(pu2.pc()->state() == Proto::S_TRANS);
 
     Message msg;
     get_msg(pu1.tp()->out(), &msg);
     pu1.pc()->handle_msg(msg, Datagram(), pum1);
     pu2.pc()->handle_msg(msg, Datagram(), pum1);
 
-    fail_unless(pu1.pc()->state() == Proto::S_TRANS);
-    fail_unless(pu2.pc()->state() == Proto::S_TRANS);
+    ck_assert(pu1.pc()->state() == Proto::S_TRANS);
+    ck_assert(pu2.pc()->state() == Proto::S_TRANS);
 
     get_msg(pu2.tp()->out(), &msg);
     pu1.pc()->handle_msg(msg, Datagram(), pum2);
     pu2.pc()->handle_msg(msg, Datagram(), pum2);
 
-    fail_unless(pu1.pc()->state() == Proto::S_TRANS);
-    fail_unless(pu2.pc()->state() == Proto::S_TRANS);
+    ck_assert(pu1.pc()->state() == Proto::S_TRANS);
+    ck_assert(pu2.pc()->state() == Proto::S_TRANS);
 
 
     View reg3(0, ViewId(V_REG, uuid1,
@@ -751,22 +723,22 @@ START_TEST(test_pc_state2)
     pu1.pc()->handle_view(reg3);
     pu2.pc()->handle_view(reg3);
 
-    fail_unless(pu1.pc()->state() == Proto::S_STATES_EXCH);
-    fail_unless(pu2.pc()->state() == Proto::S_STATES_EXCH);
+    ck_assert(pu1.pc()->state() == Proto::S_STATES_EXCH);
+    ck_assert(pu2.pc()->state() == Proto::S_STATES_EXCH);
 
     get_msg(pu1.tp()->out(), &msg);
     pu1.pc()->handle_msg(msg, Datagram(), pum1);
     pu2.pc()->handle_msg(msg, Datagram(), pum1);
 
-    fail_unless(pu1.pc()->state() == Proto::S_STATES_EXCH);
-    fail_unless(pu2.pc()->state() == Proto::S_STATES_EXCH);
+    ck_assert(pu1.pc()->state() == Proto::S_STATES_EXCH);
+    ck_assert(pu2.pc()->state() == Proto::S_STATES_EXCH);
 
     get_msg(pu2.tp()->out(), &msg);
     pu1.pc()->handle_msg(msg, Datagram(), pum2);
     pu2.pc()->handle_msg(msg, Datagram(), pum2);
 
-    fail_unless(pu1.pc()->state() == Proto::S_INSTALL);
-    fail_unless(pu2.pc()->state() == Proto::S_INSTALL);
+    ck_assert(pu1.pc()->state() == Proto::S_INSTALL);
+    ck_assert(pu2.pc()->state() == Proto::S_INSTALL);
 
     Message im;
     if (uuid1 < uuid2)
@@ -782,8 +754,8 @@ START_TEST(test_pc_state2)
         pu2.pc()->handle_msg(im, Datagram(), pum2);
     }
 
-    fail_unless(pu1.pc()->state() == Proto::S_PRIM);
-    fail_unless(pu2.pc()->state() == Proto::S_PRIM);
+    ck_assert(pu1.pc()->state() == Proto::S_PRIM);
+    ck_assert(pu2.pc()->state() == Proto::S_PRIM);
 
 }
 END_TEST
@@ -811,8 +783,8 @@ START_TEST(test_pc_state3)
     // n2: JOINING -> STATES_EXCH -> RTR -> PRIM
     double_boot(0, &pu1, &pu2);
 
-    fail_unless(pu1.pc()->state() == Proto::S_PRIM);
-    fail_unless(pu2.pc()->state() == Proto::S_PRIM);
+    ck_assert(pu1.pc()->state() == Proto::S_PRIM);
+    ck_assert(pu2.pc()->state() == Proto::S_PRIM);
 
     // PRIM -> NON_PRIM -> STATES_EXCH -> RTR -> NON_PRIM -> STATES_EXCH -> ...
     //      -> NON_PRIM -> STATES_EXCH -> RTR -> NON_PRIM
@@ -824,23 +796,23 @@ START_TEST(test_pc_state3)
     tr12.add_member(uuid2, 0);
     pu2.pc()->handle_view(tr12);
 
-    fail_unless(pu1.pc()->state() == Proto::S_TRANS);
-    fail_unless(pu2.pc()->state() == Proto::S_TRANS);
+    ck_assert(pu1.pc()->state() == Proto::S_TRANS);
+    ck_assert(pu2.pc()->state() == Proto::S_TRANS);
 
-    fail_unless(pu1.tp()->out() == 0);
-    fail_unless(pu2.tp()->out() == 0);
+    ck_assert(pu1.tp()->out() == 0);
+    ck_assert(pu2.tp()->out() == 0);
 
     View reg21(0, ViewId(V_REG, uuid1,
                          pu1.pc()->current_view().id().seq() + 1));
     reg21.add_member(uuid1, 0);
     pu1.pc()->handle_view(reg21);
-    fail_unless(pu1.pc()->state() == Proto::S_STATES_EXCH);
+    ck_assert(pu1.pc()->state() == Proto::S_STATES_EXCH);
 
     View reg22(0, ViewId(V_REG, uuid2,
                          pu2.pc()->current_view().id().seq() + 1));
     reg22.add_member(uuid2, 0);
     pu2.pc()->handle_view(reg22);
-    fail_unless(pu2.pc()->state() == Proto::S_STATES_EXCH);
+    ck_assert(pu2.pc()->state() == Proto::S_STATES_EXCH);
 
 
     Message msg;
@@ -850,8 +822,8 @@ START_TEST(test_pc_state3)
     get_msg(pu2.tp()->out(), &msg);
     pu2.pc()->handle_msg(msg, Datagram(), pum2);
 
-    fail_unless(pu1.pc()->state() == Proto::S_NON_PRIM);
-    fail_unless(pu2.pc()->state() == Proto::S_NON_PRIM);
+    ck_assert(pu1.pc()->state() == Proto::S_NON_PRIM);
+    ck_assert(pu2.pc()->state() == Proto::S_NON_PRIM);
 
 
 
@@ -863,11 +835,11 @@ START_TEST(test_pc_state3)
     tr22.add_member(uuid2, 0);
     pu2.pc()->handle_view(tr22);
 
-    fail_unless(pu1.pc()->state() == Proto::S_TRANS);
-    fail_unless(pu2.pc()->state() == Proto::S_TRANS);
+    ck_assert(pu1.pc()->state() == Proto::S_TRANS);
+    ck_assert(pu2.pc()->state() == Proto::S_TRANS);
 
-    fail_unless(pu1.tp()->out() == 0);
-    fail_unless(pu2.tp()->out() == 0);
+    ck_assert(pu1.tp()->out() == 0);
+    ck_assert(pu2.tp()->out() == 0);
 
     View reg3(0, ViewId(V_REG, uuid1,
                         pu1.pc()->current_view().id().seq() + 1));
@@ -877,22 +849,22 @@ START_TEST(test_pc_state3)
     pu1.pc()->handle_view(reg3);
     pu2.pc()->handle_view(reg3);
 
-    fail_unless(pu1.pc()->state() == Proto::S_STATES_EXCH);
-    fail_unless(pu2.pc()->state() == Proto::S_STATES_EXCH);
+    ck_assert(pu1.pc()->state() == Proto::S_STATES_EXCH);
+    ck_assert(pu2.pc()->state() == Proto::S_STATES_EXCH);
 
     get_msg(pu1.tp()->out(), &msg);
     pu1.pc()->handle_msg(msg, Datagram(), pum1);
     pu2.pc()->handle_msg(msg, Datagram(), pum1);
 
-    fail_unless(pu1.pc()->state() == Proto::S_STATES_EXCH);
-    fail_unless(pu2.pc()->state() == Proto::S_STATES_EXCH);
+    ck_assert(pu1.pc()->state() == Proto::S_STATES_EXCH);
+    ck_assert(pu2.pc()->state() == Proto::S_STATES_EXCH);
 
     get_msg(pu2.tp()->out(), &msg);
     pu1.pc()->handle_msg(msg, Datagram(), pum2);
     pu2.pc()->handle_msg(msg, Datagram(), pum2);
 
-    fail_unless(pu1.pc()->state() == Proto::S_INSTALL);
-    fail_unless(pu2.pc()->state() == Proto::S_INSTALL);
+    ck_assert(pu1.pc()->state() == Proto::S_INSTALL);
+    ck_assert(pu2.pc()->state() == Proto::S_INSTALL);
 
     Message im;
     if (uuid1 < uuid2)
@@ -908,8 +880,8 @@ START_TEST(test_pc_state3)
         pu2.pc()->handle_msg(im, Datagram(), pum2);
     }
 
-    fail_unless(pu1.pc()->state() == Proto::S_PRIM);
-    fail_unless(pu2.pc()->state() == Proto::S_PRIM);
+    ck_assert(pu1.pc()->state() == Proto::S_PRIM);
+    ck_assert(pu2.pc()->state() == Proto::S_PRIM);
 
 }
 END_TEST
@@ -953,7 +925,7 @@ START_TEST(test_pc_conflicting_prims)
      * trans view */
     get_msg(pu1.tp()->out(), &msg1);
     get_msg(pu2.tp()->out(), &msg2);
-    fail_unless(pu1.pc()->state() == Proto::S_STATES_EXCH);
+    ck_assert(pu1.pc()->state() == Proto::S_STATES_EXCH);
 
     pu1.pc()->handle_msg(msg1, Datagram(), pum1);
     pu1.pc()->handle_msg(msg2, Datagram(), pum2);
@@ -962,14 +934,14 @@ START_TEST(test_pc_conflicting_prims)
     try
     {
         pu2.pc()->handle_msg(msg1, Datagram(), pum1);
-        fail("not aborted");
+        ck_abort_msg("not aborted");
     }
     catch (Exception& e)
     {
         log_info << e.what();
     }
 
-    fail_unless(pu1.tp()->out() == 0);
+    ck_assert(pu1.tp()->out() == 0);
 
     View tr3(0, ViewId(V_TRANS, reg.id()));
     tr3.add_member(uuid1, 0);
@@ -984,7 +956,7 @@ START_TEST(test_pc_conflicting_prims)
     get_msg(pu1.tp()->out(), &msg1);
     pu1.pc()->handle_msg(msg1, Datagram(), pum1);
 
-    fail_unless(pu1.pc()->state() == Proto::S_PRIM);
+    ck_assert(pu1.pc()->state() == Proto::S_PRIM);
 
 }
 END_TEST
@@ -1028,7 +1000,7 @@ START_TEST(test_pc_conflicting_prims_npvo)
      * trans view */
     get_msg(pu1.tp()->out(), &msg1);
     get_msg(pu2.tp()->out(), &msg2);
-    fail_unless(pu1.pc()->state() == Proto::S_STATES_EXCH);
+    ck_assert(pu1.pc()->state() == Proto::S_STATES_EXCH);
 
     pu1.pc()->handle_msg(msg1, Datagram(), pum1);
     pu2.pc()->handle_msg(msg1, Datagram(), pum1);
@@ -1037,14 +1009,14 @@ START_TEST(test_pc_conflicting_prims_npvo)
     try
     {
         pu1.pc()->handle_msg(msg2, Datagram(), pum2);
-        fail("not aborted");
+        ck_abort_msg("not aborted");
     }
     catch (Exception& e)
     {
         log_info << e.what();
     }
 
-    fail_unless(pu2.tp()->out() == 0);
+    ck_assert(pu2.tp()->out() == 0);
 
     View tr3(0, ViewId(V_TRANS, reg.id()));
     tr3.add_member(uuid2, 0);
@@ -1059,7 +1031,7 @@ START_TEST(test_pc_conflicting_prims_npvo)
     get_msg(pu2.tp()->out(), &msg2);
     pu2.pc()->handle_msg(msg2, Datagram(), pum2);
 
-    fail_unless(pu2.pc()->state() == Proto::S_PRIM);
+    ck_assert(pu2.pc()->state() == Proto::S_PRIM);
 
 }
 END_TEST
@@ -1362,7 +1334,7 @@ START_TEST(test_pc_protocol_upgrade)
         ++view_seq;
         for (int j(0); j <= i; ++j)
         {
-            fail_unless(pc_from_dummy(dn[j])->current_view().version() == 0);
+            ck_assert(pc_from_dummy(dn[j])->current_view().version() == 0);
             gu_trace(send_n(dn[j], 5 + ::rand() % 4));
         }
     }
@@ -1384,168 +1356,12 @@ START_TEST(test_pc_protocol_upgrade)
         }
         gu_trace(prop.propagate_until_empty());
     }
-    fail_unless(pc_from_dummy(dn[GCOMM_PROTOCOL_MAX_VERSION])->current_view().version() == GCOMM_PROTOCOL_MAX_VERSION);
+    ck_assert(pc_from_dummy(dn[GCOMM_PROTOCOL_MAX_VERSION])->current_view().version() == GCOMM_PROTOCOL_MAX_VERSION);
     check_trace(dn);
     for_each(dn.begin(), dn.end(), DeleteObject());
 }
 END_TEST
 
-class PCUser2 : public Toplay
-{
-    Transport* tp_;
-    bool sending_;
-    uint8_t my_type_;
-    bool send_;
-    Period send_period_;
-    Date next_send_;
-    PCUser2(const PCUser2&);
-    void operator=(const PCUser2);
-public:
-    PCUser2(Protonet& net, const string& uri, const bool send = true) :
-        Toplay(net.conf()),
-        tp_(Transport::create(net, uri)),
-        sending_(false),
-        my_type_(static_cast<uint8_t>(1 + ::rand()%4)),
-        send_(send),
-        send_period_("PT0.05S"),
-        next_send_(Date::max())
-    { }
-
-    ~PCUser2()
-    {
-        delete tp_;
-    }
-
-    void start()
-    {
-        gcomm::connect(tp_, this);
-        tp_->connect();
-        gcomm::disconnect(tp_, this);
-        tp_->pstack().push_proto(this);
-    }
-
-    void stop()
-    {
-        sending_ = false;
-        tp_->pstack().pop_proto(this);
-        gcomm::connect(tp_, this);
-        tp_->close();
-        gcomm::disconnect(tp_, this);
-    }
-
-    void handle_up(const void* cid, const Datagram& rb, const ProtoUpMeta& um)
-    {
-
-        if (um.has_view())
-        {
-            const View& view(um.view());
-            log_info << view;
-            if (view.type() == V_PRIM && send_ == true)
-            {
-                sending_ = true;
-                next_send_ = Date::now() + send_period_;
-            }
-        }
-        else
-        {
-            // log_debug << "received message: " << um.get_to_seq();
-            fail_unless(rb.len() - rb.offset() == 16);
-            if (um.source() == tp_->uuid())
-            {
-                fail_unless(um.user_type() == my_type_);
-            }
-        }
-    }
-
-    Protostack& pstack() { return tp_->pstack(); }
-
-    Date handle_timers()
-    {
-        Date now(Date::now());
-        if (now >= next_send_)
-        {
-            byte_t buf[16];
-            memset(buf, 0xa, sizeof(buf));
-            Datagram dg(Buffer(buf, buf + sizeof(buf)));
-            // dg.get_header().resize(128);
-            // dg.set_header_offset(128);
-            int ret = send_down(dg, ProtoDownMeta(my_type_, rand() % 10 == 0 ? O_SAFE : O_LOCAL_CAUSAL));
-            if (ret != 0)
-            {
-                // log_debug << "send down " << ret;
-            }
-            next_send_ = next_send_ + send_period_;
-        }
-        return next_send_;
-    }
-
-    std::string listen_addr() const
-    {
-        return tp_->listen_addr();
-    }
-
-};
-
-START_TEST(test_pc_transport)
-{
-    log_info << "START (test_pc_transport)";
-    gu::Config conf;
-    gu::ssl_register_params(conf);
-    gcomm::Conf::register_params(conf);
-    auto_ptr<Protonet> net(Protonet::create(conf));
-    PCUser2 pu1(*net,
-                "pc://?"
-                "evs.info_log_mask=0xff&"
-                "gmcast.listen_addr=tcp://127.0.0.1:0&"
-                "gmcast.group=pc&"
-                "gmcast.time_wait=PT0.5S&"
-                "pc.recovery=0&"
-                "node.name=n1");
-
-    gu_conf_self_tstamp_on();
-
-    pu1.start();
-    net->event_loop(5*Sec);
-
-    PCUser2 pu2(*net,
-                std::string("pc://")
-                + pu1.listen_addr().erase(0, strlen("tcp://"))
-                + "?evs.info_log_mask=0xff&"
-                "gmcast.group=pc&"
-                "gmcast.time_wait=PT0.5S&"
-                "gmcast.listen_addr=tcp://127.0.0.1:0&"
-                "pc.recovery=0&"
-                "node.name=n2");
-    PCUser2 pu3(*net,
-                std::string("pc://")
-                + pu1.listen_addr().erase(0, strlen("tcp://"))
-                + "?evs.info_log_mask=0xff&"
-                "gmcast.group=pc&"
-                "gmcast.time_wait=PT0.5S&"
-                "gmcast.listen_addr=tcp://127.0.0.1:0&"
-                "pc.recovery=0&"
-                "node.name=n3");
-
-
-    pu2.start();
-    net->event_loop(5*Sec);
-
-    pu3.start();
-    net->event_loop(5*Sec);
-
-    pu3.stop();
-    net->event_loop(5*Sec);
-
-    pu2.stop();
-    net->event_loop(5*Sec);
-
-    pu1.stop();
-    log_info << "cleanup";
-    net->event_loop(0);
-    log_info << "finished";
-
-}
-END_TEST
 
 
 START_TEST(test_trac_191)
@@ -1572,10 +1388,10 @@ START_TEST(test_trac_191)
     p.handle_view(r5);
 
     Datagram* dg = tp.out();
-    fail_unless(dg != 0);
+    ck_assert(dg != 0);
     Message sm4;
     get_msg(dg, &sm4);
-    fail_unless(sm4.type() == Message::PC_T_STATE);
+    ck_assert(sm4.type() == Message::PC_T_STATE);
 
     // Handle first sm from uuid3
 
@@ -1635,22 +1451,22 @@ START_TEST(test_trac_413)
         n1.p().connect(true);
         n1.p().handle_view(tr);
         Datagram* dg(n1.tp().out());
-        fail_unless(dg == 0 && n1.p().state() == gcomm::pc::Proto::S_TRANS);
+        ck_assert(dg == 0 && n1.p().state() == gcomm::pc::Proto::S_TRANS);
         gcomm::View reg(0, ViewId(V_REG, n1.uuid(), 1));
         reg.members().insert_unique(std::make_pair(n1.uuid(), 0));
         n1.p().handle_view(reg);
         dg = n1.tp().out();
-        fail_unless(dg != 0 &&
+        ck_assert(dg != 0 &&
                     n1.p().state() == gcomm::pc::Proto::S_STATES_EXCH);
         n1.p().handle_up(0, *dg, gcomm::ProtoUpMeta(n1.uuid()));
         delete dg;
         dg = n1.tp().out();
-        fail_unless(dg != 0 &&
+        ck_assert(dg != 0 &&
                     n1.p().state() == gcomm::pc::Proto::S_INSTALL);
         n1.p().handle_up(0, *dg, gcomm::ProtoUpMeta(n1.uuid()));
         delete dg;
         dg = n1.tp().out();
-        fail_unless(dg == 0 && n1.p().state() == gcomm::pc::Proto::S_PRIM);
+        ck_assert(dg == 0 && n1.p().state() == gcomm::pc::Proto::S_PRIM);
     }
 
     // add remaining nodes
@@ -1682,38 +1498,38 @@ START_TEST(test_trac_413)
         n3.p().handle_view(reg);
 
         Datagram* dg(n1.tp().out());
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         n1.p().handle_up(0, *dg, gcomm::ProtoUpMeta(n1.uuid()));
         n2.p().handle_up(0, *dg, gcomm::ProtoUpMeta(n1.uuid()));
         n3.p().handle_up(0, *dg, gcomm::ProtoUpMeta(n1.uuid()));
         delete dg;
 
         dg = n2.tp().out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         n1.p().handle_up(0, *dg, gcomm::ProtoUpMeta(n2.uuid()));
         n2.p().handle_up(0, *dg, gcomm::ProtoUpMeta(n2.uuid()));
         n3.p().handle_up(0, *dg, gcomm::ProtoUpMeta(n2.uuid()));
         delete dg;
 
         dg = n3.tp().out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         n1.p().handle_up(0, *dg, gcomm::ProtoUpMeta(n3.uuid()));
         n2.p().handle_up(0, *dg, gcomm::ProtoUpMeta(n3.uuid()));
         n3.p().handle_up(0, *dg, gcomm::ProtoUpMeta(n3.uuid()));
         delete dg;
 
         dg = n1.tp().out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         n1.p().handle_up(0, *dg, gcomm::ProtoUpMeta(n1.uuid()));
         n2.p().handle_up(0, *dg, gcomm::ProtoUpMeta(n1.uuid()));
         n3.p().handle_up(0, *dg, gcomm::ProtoUpMeta(n1.uuid()));
         delete dg;
 
-        fail_unless(n1.tp().out() == 0 &&
+        ck_assert(n1.tp().out() == 0 &&
                     n1.p().state() == gcomm::pc::Proto::S_PRIM);
-        fail_unless(n2.tp().out() == 0 &&
+        ck_assert(n2.tp().out() == 0 &&
                     n2.p().state() == gcomm::pc::Proto::S_PRIM);
-        fail_unless(n3.tp().out() == 0 &&
+        ck_assert(n3.tp().out() == 0 &&
                     n3.p().state() == gcomm::pc::Proto::S_PRIM);
     }
 
@@ -1744,6 +1560,9 @@ START_TEST(test_trac_413)
         n2.p().handle_up(0, *dg, gcomm::ProtoUpMeta(n3.uuid()));
         n3.p().handle_up(0, *dg, gcomm::ProtoUpMeta(n3.uuid()));
         delete dg;
+        // Clean up n2 out queue
+        dg = n2.tp().out();
+        delete dg;
     }
 
     mark_point();
@@ -1752,22 +1571,23 @@ START_TEST(test_trac_413)
         gcomm::View tr(0, gcomm::ViewId(V_TRANS, n2.uuid(), 3));
         tr.members().insert_unique(std::make_pair(n3.uuid(), 0));
         n3.p().handle_view(tr);
-        fail_unless(n3.tp().out() == 0 &&
+        ck_assert(n3.tp().out() == 0 &&
                     n3.p().state() == gcomm::pc::Proto::S_TRANS);
 
         gcomm::View reg(0, gcomm::ViewId(V_REG, n3.uuid(), 4));
         reg.members().insert_unique(std::make_pair(n3.uuid(), 0));
         n3.p().handle_view(reg);
 
-        fail_unless(n3.p().state() == gcomm::pc::Proto::S_STATES_EXCH);
+        ck_assert(n3.p().state() == gcomm::pc::Proto::S_STATES_EXCH);
 
         Datagram* dg(n3.tp().out());
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         n3.p().handle_up(0, *dg, ProtoUpMeta(n3.uuid()));
+        delete dg;
         dg = n3.tp().out();
-        fail_unless(dg == 0 &&
-                    n3.p().state() == gcomm::pc::Proto::S_NON_PRIM,
-                    "%p %d", dg, n3.p().state());
+        ck_assert_msg(dg == 0 &&
+                      n3.p().state() == gcomm::pc::Proto::S_NON_PRIM,
+                      "%p %d", dg, n3.p().state());
     }
 
 }
@@ -1791,18 +1611,18 @@ START_TEST(test_fifo_violation)
     pu1.send();
     pu1.send();
     Datagram* dg1(tp1.out());
-    fail_unless(dg1 != 0);
+    ck_assert(dg1 != 0);
     Datagram* dg2(tp1.out());
-    fail_unless(dg2 != 0);
+    ck_assert(dg2 != 0);
 
     try
     {
         pc1.handle_up(0, *dg2, ProtoUpMeta(uuid1, ViewId(), 0, 0xff, O_SAFE));
-        fail("");
+        ck_abort_msg("Exception not thrown");
     }
     catch (Exception& e)
     {
-        fail_unless(e.get_errno() == ENOTRECOVERABLE);
+        ck_assert(e.get_errno() == ENOTRECOVERABLE);
     }
     delete dg1;
     delete dg2;
@@ -1826,166 +1646,31 @@ START_TEST(test_checksum)
     assert(pc1.state() == Proto::S_PRIM);
     pu1.send();
     Datagram* dg(tp1.out());
-    fail_unless(dg != 0);
+    ck_assert(dg != 0);
     dg->normalize();
     pc1.handle_up(0, *dg, ProtoUpMeta(uuid1));
     delete dg;
 
     pu1.send();
     dg = tp1.out();
-    fail_unless(dg != 0);
+    ck_assert(dg != 0);
     dg->normalize();
     *(&dg->payload()[0] + dg->payload().size() - 1) ^= 0x10;
     try
     {
         pc1.handle_up(0, *dg, ProtoUpMeta(uuid1));
-        fail("");
+        ck_abort_msg("Exception not thrown");
     }
     catch (Exception& e)
     {
-        fail_unless(e.get_errno() == ENOTRECOVERABLE);
+        ck_assert(e.get_errno() == ENOTRECOVERABLE);
     }
     delete dg;
 }
 END_TEST
 
 
-START_TEST(test_set_param)
-{
-    log_info << "START (test_pc_transport)";
-    gu::Config conf;
-    Protolay::sync_param_cb_t sync_param_cb;
-    gu::ssl_register_params(conf);
-    gcomm::Conf::register_params(conf);
-    auto_ptr<Protonet> net(Protonet::create(conf));
-    PCUser2 pu1(*net,
-                "pc://?"
-                "evs.info_log_mask=0xff&"
-                "gmcast.listen_addr=tcp://127.0.0.1:0&"
-                "gmcast.group=pc&"
-                "gmcast.time_wait=PT0.5S&"
-                "pc.recovery=0&"
-                "node.name=n1");
-    pu1.start();
-    // no such a parameter
-    fail_unless(net->set_param("foo.bar", "1", sync_param_cb) == false);
 
-    const evs::seqno_t send_window(
-        gu::from_string<evs::seqno_t>(conf.get("evs.send_window")));
-    const evs::seqno_t user_send_window(
-        gu::from_string<evs::seqno_t>(conf.get("evs.user_send_window")));
-
-    try
-    {
-        net->set_param("evs.send_window", gu::to_string(user_send_window - 1), sync_param_cb);
-        fail("exception not thrown");
-    }
-    catch (gu::Exception& e)
-    {
-        fail_unless(e.get_errno() == ERANGE, "%d: %s", e.get_errno(), e.what());
-    }
-
-    try
-    {
-        net->set_param("evs.user_send_window",
-                      gu::to_string(send_window + 1), sync_param_cb);
-        fail("exception not thrown");
-    }
-    catch (gu::Exception& e)
-    {
-        fail_unless(e.get_errno() == ERANGE, "%d: %s", e.get_errno(), e.what());
-    }
-
-    // Note: These checks may have to change if defaults are changed
-    fail_unless(net->set_param(
-                    "evs.send_window",
-                    gu::to_string(send_window - 1), sync_param_cb) == true);
-    fail_unless(gu::from_string<evs::seqno_t>(conf.get("evs.send_window")) ==
-                send_window - 1);
-    fail_unless(net->set_param(
-                    "evs.user_send_window",
-                    gu::to_string(user_send_window + 1), sync_param_cb) == true);
-    fail_unless(gu::from_string<evs::seqno_t>(
-                    conf.get("evs.user_send_window")) == user_send_window + 1);
-    pu1.stop();
-}
-END_TEST
-
-
-START_TEST(test_trac_599)
-{
-    class D : public gcomm::Toplay
-    {
-    public:
-        D(gu::Config& conf) : gcomm::Toplay(conf) { }
-        void handle_up(const void* id, const Datagram& dg,
-                       const gcomm::ProtoUpMeta& um)
-        {
-
-        }
-    };
-
-    gu::Config conf;
-    gu::ssl_register_params(conf);
-    gcomm::Conf::register_params(conf);
-    D d(conf);
-    std::auto_ptr<gcomm::Protonet> pnet(gcomm::Protonet::create(conf));
-    std::auto_ptr<gcomm::Transport> tp(
-        gcomm::Transport::create
-        (*pnet,"pc://?gmcast.group=test&gmcast.listen_addr=tcp://127.0.0.1:0"
-         "&pc.recovery=0"));
-    gcomm::connect(tp.get(), &d);
-    gu::Buffer buf(10);
-    Datagram dg(buf);
-    int err;
-    err = tp->send_down(dg, gcomm::ProtoDownMeta());
-    fail_unless(err == ENOTCONN, "%d", err);
-    tp->connect(true);
-    buf.resize(tp->mtu());
-    Datagram dg2(buf);
-    err = tp->send_down(dg2, gcomm::ProtoDownMeta());
-    fail_unless(err == 0, "%d", err);
-    buf.resize(buf.size() + 1);
-    Datagram dg3(buf);
-    err = tp->send_down(dg3, gcomm::ProtoDownMeta());
-    fail_unless(err == EMSGSIZE, "%d", err);
-    pnet->event_loop(gu::datetime::Sec);
-    tp->close();
-}
-END_TEST
-
-// test for forced teardown
-START_TEST(test_trac_620)
-{
-    gu::Config conf;
-    gu::ssl_register_params(conf);
-    gcomm::Conf::register_params(conf);
-    auto_ptr<Protonet> net(Protonet::create(conf));
-    Transport* tp(Transport::create(*net, "pc://?"
-				    "evs.info_log_mask=0xff&"
-				    "gmcast.listen_addr=tcp://127.0.0.1:0&"
-				    "gmcast.group=pc&"
-				    "gmcast.time_wait=PT0.5S&"
-                    "pc.recovery=0&"
-				    "node.name=n1"));
-    class D : public gcomm::Toplay
-    {
-    public:
-        D(gu::Config& conf) : gcomm::Toplay(conf) { }
-        void handle_up(const void* id, const Datagram& dg,
-                       const gcomm::ProtoUpMeta& um)
-        {
-
-        }
-    };
-    D d(conf);
-    gcomm::connect(tp, &d);
-    tp->connect(true);
-    tp->close(true);
-    gcomm::disconnect(tp, &d);
-    delete tp;
-}
-END_TEST
 
 
 START_TEST(test_trac_277)
@@ -2127,8 +1812,8 @@ START_TEST(test_weighted_quorum)
     for (size_t i(0); i < n_nodes; ++i)
     {
         int weight(pc_from_dummy(dn[i])->cluster_weight());
-        fail_unless(weight == 3,
-                    "index: %i weight: %i", i, weight);
+        ck_assert_msg(weight == 3,
+                      "index: %zu weight: %d", i, weight);
     }
     // split node 3 (weight 2) out, node 3 should remain in prim while
     // nodes 1 and 2 (weights 0 + 1 = 1) should end up in non-prim
@@ -2139,9 +1824,10 @@ START_TEST(test_weighted_quorum)
     set_cvi(dn, 2, 2, view_seq, V_PRIM);
     gu_trace(prop.propagate_until_cvi(true));
 
-    fail_unless(pc_from_dummy(dn[0])->cluster_weight() == 0);
-    fail_unless(pc_from_dummy(dn[1])->cluster_weight() == 0);
-    fail_unless(pc_from_dummy(dn[2])->cluster_weight() == 2);
+    ck_assert(pc_from_dummy(dn[0])->cluster_weight() == 0);
+    ck_assert(pc_from_dummy(dn[1])->cluster_weight() == 0);
+    ck_assert(pc_from_dummy(dn[2])->cluster_weight() == 2);
+    std::for_each(dn.begin(), dn.end(), gu::DeleteObject());
 }
 END_TEST
 
@@ -2230,37 +1916,37 @@ START_TEST(test_weighted_partitioning_1)
     // states exch
     {
         Datagram* dg(pu1.tp()->out());
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pu1.pc()->handle_up(0, *dg, ProtoUpMeta(uuid1));
         pu2.pc()->handle_up(0, *dg, ProtoUpMeta(uuid1));
         pu3.pc()->handle_up(0, *dg, ProtoUpMeta(uuid1));
         delete dg;
 
         dg = pu2.tp()->out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pu1.pc()->handle_up(0, *dg, ProtoUpMeta(uuid2));
         pu2.pc()->handle_up(0, *dg, ProtoUpMeta(uuid2));
         pu3.pc()->handle_up(0, *dg, ProtoUpMeta(uuid2));
         delete dg;
 
         dg = pu3.tp()->out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pu1.pc()->handle_up(0, *dg, ProtoUpMeta(uuid3));
         pu2.pc()->handle_up(0, *dg, ProtoUpMeta(uuid3));
         pu3.pc()->handle_up(0, *dg, ProtoUpMeta(uuid3));
         delete dg;
 
-        fail_unless(pu2.tp()->out() == 0);
-        fail_unless(pu3.tp()->out() == 0);
+        ck_assert(pu2.tp()->out() == 0);
+        ck_assert(pu3.tp()->out() == 0);
     }
 
     // install msg
     {
         Datagram* dg(pu1.tp()->out());
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
 
         pu1.pc()->handle_up(0, *dg, ProtoUpMeta(uuid1));
-        fail_unless(pu1.pc()->state() == Proto::S_PRIM);
+        ck_assert(pu1.pc()->state() == Proto::S_PRIM);
 
         // trans view for 2 and 3
         View tr23(0, ViewId(V_TRANS, pu2.pc()->current_view().id()));
@@ -2288,22 +1974,22 @@ START_TEST(test_weighted_partitioning_1)
         // states exch
 
         dg = pu2.tp()->out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pu2.pc()->handle_up(0, *dg, ProtoUpMeta(uuid2));
         pu3.pc()->handle_up(0, *dg, ProtoUpMeta(uuid2));
         delete dg;
 
         dg = pu3.tp()->out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pu2.pc()->handle_up(0, *dg, ProtoUpMeta(uuid3));
         pu3.pc()->handle_up(0, *dg, ProtoUpMeta(uuid3));
         delete dg;
 
         // 2 and 3 should end up in non prim
-        fail_unless(pu2.pc()->state() == Proto::S_NON_PRIM,
-                    "state: %s", Proto::to_string(pu2.pc()->state()).c_str());
-        fail_unless(pu3.pc()->state() == Proto::S_NON_PRIM,
-                    "state: %s", Proto::to_string(pu3.pc()->state()).c_str());
+        ck_assert_msg(pu2.pc()->state() == Proto::S_NON_PRIM,
+                      "state: %s", Proto::to_string(pu2.pc()->state()).c_str());
+        ck_assert_msg(pu3.pc()->state() == Proto::S_NON_PRIM,
+                      "state: %s", Proto::to_string(pu3.pc()->state()).c_str());
     }
 
 
@@ -2390,34 +2076,34 @@ START_TEST(test_weighted_partitioning_2)
     // states exch
     {
         Datagram* dg(pu1.tp()->out());
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pu1.pc()->handle_up(0, *dg, ProtoUpMeta(uuid1));
         pu2.pc()->handle_up(0, *dg, ProtoUpMeta(uuid1));
         pu3.pc()->handle_up(0, *dg, ProtoUpMeta(uuid1));
         delete dg;
 
         dg = pu2.tp()->out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pu1.pc()->handle_up(0, *dg, ProtoUpMeta(uuid2));
         pu2.pc()->handle_up(0, *dg, ProtoUpMeta(uuid2));
         pu3.pc()->handle_up(0, *dg, ProtoUpMeta(uuid2));
         delete dg;
 
         dg = pu3.tp()->out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pu1.pc()->handle_up(0, *dg, ProtoUpMeta(uuid3));
         pu2.pc()->handle_up(0, *dg, ProtoUpMeta(uuid3));
         pu3.pc()->handle_up(0, *dg, ProtoUpMeta(uuid3));
         delete dg;
 
-        fail_unless(pu2.tp()->out() == 0);
-        fail_unless(pu3.tp()->out() == 0);
+        ck_assert(pu2.tp()->out() == 0);
+        ck_assert(pu3.tp()->out() == 0);
     }
 
     // install msg
     {
         Datagram* dg(pu1.tp()->out());
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
 
         // trans view for 1
         View tr1(0, ViewId(V_TRANS, pu1.pc()->current_view().id()));
@@ -2426,11 +2112,11 @@ START_TEST(test_weighted_partitioning_2)
         tr1.add_partitioned(uuid3, 0);
         ProtoUpMeta trum1(UUID::nil(), ViewId(), &tr1);
         pu1.pc()->handle_up(0, Datagram(), trum1);
-        fail_unless(pu1.pc()->state() == Proto::S_TRANS);
+        ck_assert(pu1.pc()->state() == Proto::S_TRANS);
 
         // 1 handle install
         pu1.pc()->handle_up(0, *dg, ProtoUpMeta(uuid1));
-        fail_unless(pu1.pc()->state() == Proto::S_TRANS);
+        ck_assert(pu1.pc()->state() == Proto::S_TRANS);
 
 
         // trans view for 2 and 3
@@ -2441,14 +2127,14 @@ START_TEST(test_weighted_partitioning_2)
         ProtoUpMeta trum23(UUID::nil(), ViewId(), &tr23);
         pu2.pc()->handle_up(0, Datagram(), trum23);
         pu3.pc()->handle_up(0, Datagram(), trum23);
-        fail_unless(pu2.pc()->state() == Proto::S_TRANS);
-        fail_unless(pu3.pc()->state() == Proto::S_TRANS);
+        ck_assert(pu2.pc()->state() == Proto::S_TRANS);
+        ck_assert(pu3.pc()->state() == Proto::S_TRANS);
 
         // 2 and 3 handle install
         pu2.pc()->handle_up(0, *dg, ProtoUpMeta(uuid1));
         pu3.pc()->handle_up(0, *dg, ProtoUpMeta(uuid1));
-        fail_unless(pu2.pc()->state() == Proto::S_TRANS);
-        fail_unless(pu3.pc()->state() == Proto::S_TRANS);
+        ck_assert(pu2.pc()->state() == Proto::S_TRANS);
+        ck_assert(pu3.pc()->state() == Proto::S_TRANS);
 
         delete dg;
 
@@ -2457,7 +2143,7 @@ START_TEST(test_weighted_partitioning_2)
         reg1.add_member(uuid1, 0);
         ProtoUpMeta rum1(UUID::nil(), ViewId(), &reg1);
         pu1.pc()->handle_up(0, Datagram(), rum1);
-        fail_unless(pu1.pc()->state() == Proto::S_STATES_EXCH);
+        ck_assert(pu1.pc()->state() == Proto::S_STATES_EXCH);
 
         // reg view for 2 and 3
         View reg23(0, ViewId(V_REG, uuid2, pu2.pc()->current_view().id().seq() + 1));
@@ -2466,36 +2152,36 @@ START_TEST(test_weighted_partitioning_2)
         ProtoUpMeta rum23(UUID::nil(), ViewId(), &reg23);
         pu2.pc()->handle_up(0, Datagram(), rum23);
         pu3.pc()->handle_up(0, Datagram(), rum23);
-        fail_unless(pu2.pc()->state() == Proto::S_STATES_EXCH);
-        fail_unless(pu3.pc()->state() == Proto::S_STATES_EXCH);
+        ck_assert(pu2.pc()->state() == Proto::S_STATES_EXCH);
+        ck_assert(pu3.pc()->state() == Proto::S_STATES_EXCH);
 
 
         // states exch
 
         dg = pu1.tp()->out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pu1.pc()->handle_up(0, *dg, ProtoUpMeta(uuid1));
-        fail_unless(pu1.pc()->state() == Proto::S_NON_PRIM,
-                    "state: %s", Proto::to_string(pu1.pc()->state()).c_str());
+        ck_assert_msg(pu1.pc()->state() == Proto::S_NON_PRIM,
+                      "state: %s", Proto::to_string(pu1.pc()->state()).c_str());
         delete dg;
 
         dg = pu2.tp()->out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pu2.pc()->handle_up(0, *dg, ProtoUpMeta(uuid2));
         pu3.pc()->handle_up(0, *dg, ProtoUpMeta(uuid2));
         delete dg;
 
         dg = pu3.tp()->out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pu2.pc()->handle_up(0, *dg, ProtoUpMeta(uuid3));
         pu3.pc()->handle_up(0, *dg, ProtoUpMeta(uuid3));
         delete dg;
 
 
-        fail_unless(pu2.pc()->state() == Proto::S_NON_PRIM,
-                    "state: %s", Proto::to_string(pu2.pc()->state()).c_str());
-        fail_unless(pu3.pc()->state() == Proto::S_NON_PRIM,
-                    "state: %s", Proto::to_string(pu3.pc()->state()).c_str());
+        ck_assert_msg(pu2.pc()->state() == Proto::S_NON_PRIM,
+                      "state: %s", Proto::to_string(pu2.pc()->state()).c_str());
+        ck_assert_msg(pu3.pc()->state() == Proto::S_NON_PRIM,
+                      "state: %s", Proto::to_string(pu3.pc()->state()).c_str());
     }
 
 
@@ -2553,9 +2239,9 @@ START_TEST(test_weight_change_partitioning_1)
     {
         Protolay::sync_param_cb_t sync_param_cb;
         pu1.pc()->set_param("pc.weight", "3", sync_param_cb);
-        fail_unless(sync_param_cb.empty() == false);
+        ck_assert(sync_param_cb.empty() == false);
         Datagram* install_dg(pu1.tp()->out());
-        fail_unless(install_dg != 0);
+        ck_assert(install_dg != 0);
 
         // node 1 handle weight change install, proceed to singleton prim
         pu1.pc()->handle_up(0, *install_dg, ProtoUpMeta(pu1.uuid()));
@@ -2566,25 +2252,25 @@ START_TEST(test_weight_change_partitioning_1)
         tr1.add_partitioned(pu3.uuid(), 0);
 
         pu1.pc()->handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &tr1));
-        fail_unless(pu1.pc()->state() == Proto::S_TRANS);
+        ck_assert(pu1.pc()->state() == Proto::S_TRANS);
 
         View reg1(0, ViewId(V_REG, pu1.uuid(),
                             pu1.pc()->current_view().id().seq() + 1));
         reg1.add_member(pu1.uuid(), 0);
         pu1.pc()->handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &reg1));
-        fail_unless(pu1.pc()->state() == Proto::S_STATES_EXCH);
+        ck_assert(pu1.pc()->state() == Proto::S_STATES_EXCH);
 
         Datagram* dg(pu1.tp()->out());
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pu1.pc()->handle_up(0, *dg, ProtoUpMeta(pu1.uuid()));
         delete dg;
-        fail_unless(pu1.pc()->state() == Proto::S_INSTALL);
+        ck_assert(pu1.pc()->state() == Proto::S_INSTALL);
 
         dg = pu1.tp()->out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pu1.pc()->handle_up(0, *dg, ProtoUpMeta(pu1.uuid()));
         delete dg;
-        fail_unless(pu1.pc()->state() == Proto::S_PRIM);
+        ck_assert(pu1.pc()->state() == Proto::S_PRIM);
 
         // nodes 2 and 3 go to trans, handle install
         View tr23(0, ViewId(V_TRANS, pu2.pc()->current_view().id()));
@@ -2596,8 +2282,8 @@ START_TEST(test_weight_change_partitioning_1)
                             ProtoUpMeta(UUID::nil(), ViewId(), &tr23));
         pu3.pc()->handle_up(0, Datagram(),
                             ProtoUpMeta(UUID::nil(), ViewId(), &tr23));
-        fail_unless(pu2.pc()->state() == Proto::S_TRANS);
-        fail_unless(pu3.pc()->state() == Proto::S_TRANS);
+        ck_assert(pu2.pc()->state() == Proto::S_TRANS);
+        ck_assert(pu3.pc()->state() == Proto::S_TRANS);
 
         pu2.pc()->handle_up(0, *install_dg, ProtoUpMeta(pu1.uuid()));
         pu3.pc()->handle_up(0, *install_dg, ProtoUpMeta(pu1.uuid()));
@@ -2611,23 +2297,23 @@ START_TEST(test_weight_change_partitioning_1)
                             ProtoUpMeta(UUID::nil(), ViewId(), &reg23));
         pu3.pc()->handle_up(0, Datagram(),
                             ProtoUpMeta(UUID::nil(), ViewId(), &reg23));
-        fail_unless(pu2.pc()->state() == Proto::S_STATES_EXCH);
-        fail_unless(pu3.pc()->state() == Proto::S_STATES_EXCH);
+        ck_assert(pu2.pc()->state() == Proto::S_STATES_EXCH);
+        ck_assert(pu3.pc()->state() == Proto::S_STATES_EXCH);
 
         dg = pu2.tp()->out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pu2.pc()->handle_up(0, *dg, ProtoUpMeta(pu2.uuid()));
         pu3.pc()->handle_up(0, *dg, ProtoUpMeta(pu2.uuid()));
         delete dg;
 
         dg = pu3.tp()->out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pu2.pc()->handle_up(0, *dg, ProtoUpMeta(pu3.uuid()));
         pu3.pc()->handle_up(0, *dg, ProtoUpMeta(pu3.uuid()));
         delete dg;
 
-        fail_unless(pu2.pc()->state() == Proto::S_NON_PRIM);
-        fail_unless(pu3.pc()->state() == Proto::S_NON_PRIM);
+        ck_assert(pu2.pc()->state() == Proto::S_NON_PRIM);
+        ck_assert(pu3.pc()->state() == Proto::S_NON_PRIM);
 
         delete install_dg;
     }
@@ -2686,9 +2372,9 @@ START_TEST(test_weight_change_partitioning_2)
     {   
         Protolay::sync_param_cb_t sync_param_cb;
         pu1.pc()->set_param("pc.weight", "1", sync_param_cb);
-        fail_unless(sync_param_cb.empty() == false);
+        ck_assert(sync_param_cb.empty() == false);
         Datagram* install_dg(pu1.tp()->out());
-        fail_unless(install_dg != 0);
+        ck_assert(install_dg != 0);
 
         // node 1 handle weight change install, proceed to singleton prim
         pu1.pc()->handle_up(0, *install_dg, ProtoUpMeta(pu1.uuid()));
@@ -2699,19 +2385,19 @@ START_TEST(test_weight_change_partitioning_2)
         tr1.add_partitioned(pu3.uuid(), 0);
 
         pu1.pc()->handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &tr1));
-        fail_unless(pu1.pc()->state() == Proto::S_TRANS);
+        ck_assert(pu1.pc()->state() == Proto::S_TRANS);
 
         View reg1(0, ViewId(V_REG, pu1.uuid(),
                             pu1.pc()->current_view().id().seq() + 1));
         reg1.add_member(pu1.uuid(), 0);
         pu1.pc()->handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &reg1));
-        fail_unless(pu1.pc()->state() == Proto::S_STATES_EXCH);
+        ck_assert(pu1.pc()->state() == Proto::S_STATES_EXCH);
 
         Datagram* dg(pu1.tp()->out());
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pu1.pc()->handle_up(0, *dg, ProtoUpMeta(pu1.uuid()));
         delete dg;
-        fail_unless(pu1.pc()->state() == Proto::S_NON_PRIM);
+        ck_assert(pu1.pc()->state() == Proto::S_NON_PRIM);
 
         // nodes 2 and 3 go to trans, handle install
         View tr23(0, ViewId(V_TRANS, pu2.pc()->current_view().id()));
@@ -2723,8 +2409,8 @@ START_TEST(test_weight_change_partitioning_2)
                             ProtoUpMeta(UUID::nil(), ViewId(), &tr23));
         pu3.pc()->handle_up(0, Datagram(),
                             ProtoUpMeta(UUID::nil(), ViewId(), &tr23));
-        fail_unless(pu2.pc()->state() == Proto::S_TRANS);
-        fail_unless(pu3.pc()->state() == Proto::S_TRANS);
+        ck_assert(pu2.pc()->state() == Proto::S_TRANS);
+        ck_assert(pu3.pc()->state() == Proto::S_TRANS);
 
         pu2.pc()->handle_up(0, *install_dg, ProtoUpMeta(pu1.uuid()));
         pu3.pc()->handle_up(0, *install_dg, ProtoUpMeta(pu1.uuid()));
@@ -2738,23 +2424,23 @@ START_TEST(test_weight_change_partitioning_2)
                             ProtoUpMeta(UUID::nil(), ViewId(), &reg23));
         pu3.pc()->handle_up(0, Datagram(),
                             ProtoUpMeta(UUID::nil(), ViewId(), &reg23));
-        fail_unless(pu2.pc()->state() == Proto::S_STATES_EXCH);
-        fail_unless(pu3.pc()->state() == Proto::S_STATES_EXCH);
+        ck_assert(pu2.pc()->state() == Proto::S_STATES_EXCH);
+        ck_assert(pu3.pc()->state() == Proto::S_STATES_EXCH);
 
         dg = pu2.tp()->out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pu2.pc()->handle_up(0, *dg, ProtoUpMeta(pu2.uuid()));
         pu3.pc()->handle_up(0, *dg, ProtoUpMeta(pu2.uuid()));
         delete dg;
 
         dg = pu3.tp()->out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pu2.pc()->handle_up(0, *dg, ProtoUpMeta(pu3.uuid()));
         pu3.pc()->handle_up(0, *dg, ProtoUpMeta(pu3.uuid()));
         delete dg;
 
-        fail_unless(pu2.pc()->state() == Proto::S_NON_PRIM);
-        fail_unless(pu3.pc()->state() == Proto::S_NON_PRIM);
+        ck_assert(pu2.pc()->state() == Proto::S_NON_PRIM);
+        ck_assert(pu3.pc()->state() == Proto::S_NON_PRIM);
 
         delete install_dg;
     }
@@ -2807,9 +2493,9 @@ START_TEST(test_weight_change_joining)
     {
         Protolay::sync_param_cb_t sync_param_cb;
         pu1.pc()->set_param("pc.weight", "1", sync_param_cb);
-        fail_unless(sync_param_cb.empty() == false);
+        ck_assert(sync_param_cb.empty() == false);
         Datagram* install_dg(pu1.tp()->out());
-        fail_unless(install_dg != 0);
+        ck_assert(install_dg != 0);
 
         // trans views
         {
@@ -2821,8 +2507,8 @@ START_TEST(test_weight_change_joining)
             pu1.pc()->handle_up(0, Datagram(), trum12);
             pu2.pc()->handle_up(0, Datagram(), trum12);
 
-            fail_unless(pu1.pc()->state() == Proto::S_TRANS);
-            fail_unless(pu2.pc()->state() == Proto::S_TRANS);
+            ck_assert(pu1.pc()->state() == Proto::S_TRANS);
+            ck_assert(pu2.pc()->state() == Proto::S_TRANS);
 
             // deliver weight change install in trans view
             pu1.pc()->handle_up(0, *install_dg, ProtoUpMeta(pu1.uuid()));
@@ -2834,7 +2520,7 @@ START_TEST(test_weight_change_joining)
             ProtoUpMeta trum3(UUID::nil(), ViewId(), &tr3);
             pu3.pc()->handle_up(0, Datagram(), trum3);
 
-            fail_unless(pu3.pc()->state() == Proto::S_TRANS);
+            ck_assert(pu3.pc()->state() == Proto::S_TRANS);
         }
 
         // reg view
@@ -2851,52 +2537,52 @@ START_TEST(test_weight_change_joining)
             pu2.pc()->handle_up(0, Datagram(), pum);
             pu3.pc()->handle_up(0, Datagram(), pum);
 
-            fail_unless(pu1.pc()->state() == Proto::S_STATES_EXCH);
-            fail_unless(pu2.pc()->state() == Proto::S_STATES_EXCH);
-            fail_unless(pu3.pc()->state() == Proto::S_STATES_EXCH);
+            ck_assert(pu1.pc()->state() == Proto::S_STATES_EXCH);
+            ck_assert(pu2.pc()->state() == Proto::S_STATES_EXCH);
+            ck_assert(pu3.pc()->state() == Proto::S_STATES_EXCH);
 
         }
 
         // states exch
         {
             Datagram* dg(pu1.tp()->out());
-            fail_unless(dg != 0);
+            ck_assert(dg != 0);
             pu1.pc()->handle_up(0, *dg, ProtoUpMeta(pu1.uuid()));
             pu2.pc()->handle_up(0, *dg, ProtoUpMeta(pu1.uuid()));
             pu3.pc()->handle_up(0, *dg, ProtoUpMeta(pu1.uuid()));
             delete dg;
 
             dg = pu2.tp()->out();
-            fail_unless(dg != 0);
+            ck_assert(dg != 0);
             pu1.pc()->handle_up(0, *dg, ProtoUpMeta(pu2.uuid()));
             pu2.pc()->handle_up(0, *dg, ProtoUpMeta(pu2.uuid()));
             pu3.pc()->handle_up(0, *dg, ProtoUpMeta(pu2.uuid()));
             delete dg;
 
             dg = pu3.tp()->out();
-            fail_unless(dg != 0);
+            ck_assert(dg != 0);
             pu1.pc()->handle_up(0, *dg, ProtoUpMeta(pu3.uuid()));
             pu2.pc()->handle_up(0, *dg, ProtoUpMeta(pu3.uuid()));
             pu3.pc()->handle_up(0, *dg, ProtoUpMeta(pu3.uuid()));
             delete dg;
 
-            fail_unless(pu1.pc()->state() == Proto::S_INSTALL);
-            fail_unless(pu2.pc()->state() == Proto::S_INSTALL);
-            fail_unless(pu3.pc()->state() == Proto::S_INSTALL);
+            ck_assert(pu1.pc()->state() == Proto::S_INSTALL);
+            ck_assert(pu2.pc()->state() == Proto::S_INSTALL);
+            ck_assert(pu3.pc()->state() == Proto::S_INSTALL);
         }
 
         // install
         {
             Datagram* dg(pu1.tp()->out());
-            fail_unless(dg != 0);
+            ck_assert(dg != 0);
             pu1.pc()->handle_up(0, *dg, ProtoUpMeta(pu1.uuid()));
             pu2.pc()->handle_up(0, *dg, ProtoUpMeta(pu1.uuid()));
             pu3.pc()->handle_up(0, *dg, ProtoUpMeta(pu1.uuid()));
             delete dg;
 
-            fail_unless(pu1.pc()->state() == Proto::S_PRIM);
-            fail_unless(pu2.pc()->state() == Proto::S_PRIM);
-            fail_unless(pu3.pc()->state() == Proto::S_PRIM);
+            ck_assert(pu1.pc()->state() == Proto::S_PRIM);
+            ck_assert(pu2.pc()->state() == Proto::S_PRIM);
+            ck_assert(pu3.pc()->state() == Proto::S_PRIM);
         }
         delete install_dg;
     }
@@ -2951,9 +2637,9 @@ START_TEST(test_weight_change_leaving)
         Protolay::sync_param_cb_t sync_param_cb;
         // change weight for node 2 while node 1 leaves the group gracefully
         pu2.pc()->set_param("pc.weight", "1", sync_param_cb);
-        fail_unless(sync_param_cb.empty() == false);
+        ck_assert(sync_param_cb.empty() == false);
         Datagram* install_dg(pu2.tp()->out());
-        fail_unless(install_dg != 0);
+        ck_assert(install_dg != 0);
 
         // nodes 2 and 3 go to trans, handle install
         View tr23(0, ViewId(V_TRANS, pu2.pc()->current_view().id()));
@@ -2965,8 +2651,8 @@ START_TEST(test_weight_change_leaving)
                             ProtoUpMeta(UUID::nil(), ViewId(), &tr23));
         pu3.pc()->handle_up(0, Datagram(),
                             ProtoUpMeta(UUID::nil(), ViewId(), &tr23));
-        fail_unless(pu2.pc()->state() == Proto::S_TRANS);
-        fail_unless(pu3.pc()->state() == Proto::S_TRANS);
+        ck_assert(pu2.pc()->state() == Proto::S_TRANS);
+        ck_assert(pu3.pc()->state() == Proto::S_TRANS);
 
         pu2.pc()->handle_up(0, *install_dg, ProtoUpMeta(pu1.uuid()));
         pu3.pc()->handle_up(0, *install_dg, ProtoUpMeta(pu1.uuid()));
@@ -2980,32 +2666,32 @@ START_TEST(test_weight_change_leaving)
                             ProtoUpMeta(UUID::nil(), ViewId(), &reg23));
         pu3.pc()->handle_up(0, Datagram(),
                             ProtoUpMeta(UUID::nil(), ViewId(), &reg23));
-        fail_unless(pu2.pc()->state() == Proto::S_STATES_EXCH);
-        fail_unless(pu3.pc()->state() == Proto::S_STATES_EXCH);
+        ck_assert(pu2.pc()->state() == Proto::S_STATES_EXCH);
+        ck_assert(pu3.pc()->state() == Proto::S_STATES_EXCH);
 
         Datagram* dg(pu2.tp()->out());
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pu2.pc()->handle_up(0, *dg, ProtoUpMeta(pu2.uuid()));
         pu3.pc()->handle_up(0, *dg, ProtoUpMeta(pu2.uuid()));
         delete dg;
 
         dg = pu3.tp()->out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pu2.pc()->handle_up(0, *dg, ProtoUpMeta(pu3.uuid()));
         pu3.pc()->handle_up(0, *dg, ProtoUpMeta(pu3.uuid()));
         delete dg;
 
-        fail_unless(pu2.pc()->state() == Proto::S_INSTALL);
-        fail_unless(pu3.pc()->state() == Proto::S_INSTALL);
+        ck_assert(pu2.pc()->state() == Proto::S_INSTALL);
+        ck_assert(pu3.pc()->state() == Proto::S_INSTALL);
 
         dg = pu2.tp()->out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pu2.pc()->handle_up(0, *dg, ProtoUpMeta(pu3.uuid()));
         pu3.pc()->handle_up(0, *dg, ProtoUpMeta(pu3.uuid()));
         delete dg;
 
-        fail_unless(pu2.pc()->state() == Proto::S_PRIM);
-        fail_unless(pu3.pc()->state() == Proto::S_PRIM);
+        ck_assert(pu2.pc()->state() == Proto::S_PRIM);
+        ck_assert(pu3.pc()->state() == Proto::S_PRIM);
 
         delete install_dg;
     }
@@ -3072,7 +2758,7 @@ static void _test_join_split_cluster(
         tr1.add_member(pu1.uuid(), 0);
         tr1.add_partitioned(pu2.uuid(), 0);
         pc1.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &tr1));
-        fail_unless(pc1.state() == Proto::S_TRANS);
+        ck_assert(pc1.state() == Proto::S_TRANS);
 
         View reg1(0, ViewId(V_REG, reg_uuid, seq + 1));
         reg1.add_member(pu1.uuid(), 0);
@@ -3080,33 +2766,33 @@ static void _test_join_split_cluster(
         reg1.add_joined(pu3.uuid(), 0);
         reg1.add_partitioned(pu2.uuid(), 0);
         pc1.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &reg1));
-        fail_unless(pc1.state() == Proto::S_STATES_EXCH);
+        ck_assert(pc1.state() == Proto::S_STATES_EXCH);
 
         // node3
         View tr3(0, ViewId(V_TRANS, pc3.current_view().id()));
         tr3.add_member(pu3.uuid(), 0);
         pc3.connect(false);
         pc3.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &tr3));
-        fail_unless(pc3.state() == Proto::S_TRANS);
+        ck_assert(pc3.state() == Proto::S_TRANS);
 
         View reg3(0, ViewId(V_REG, reg_uuid, seq + 1));
         reg3.add_member(pu1.uuid(), 0);
         reg3.add_member(pu3.uuid(), 0);
         reg3.add_joined(pu1.uuid(), 0);
         pc3.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &reg3));
-        fail_unless(pc3.state() == Proto::S_STATES_EXCH);
+        ck_assert(pc3.state() == Proto::S_STATES_EXCH);
 
         Datagram* dg1(pu1.tp()->out());
-        fail_unless(dg1 != 0);
+        ck_assert(dg1 != 0);
         Datagram* dg3(pu3.tp()->out());
-        fail_unless(dg3 != 0);
+        ck_assert(dg3 != 0);
 
         pc1.handle_up(0, *dg1, ProtoUpMeta(pu1.uuid()));
         pc1.handle_up(0, *dg3, ProtoUpMeta(pu3.uuid()));
-        fail_unless(pc1.state() == Proto::S_NON_PRIM);
+        ck_assert(pc1.state() == Proto::S_NON_PRIM);
         pc3.handle_up(0, *dg1, ProtoUpMeta(pu1.uuid()));
         pc3.handle_up(0, *dg3, ProtoUpMeta(pu3.uuid()));
-        fail_unless(pc3.state() == Proto::S_NON_PRIM);
+        ck_assert(pc3.state() == Proto::S_NON_PRIM);
 
         delete dg1;
         delete dg3;
@@ -3118,36 +2804,37 @@ static void _test_join_split_cluster(
         tr2.add_member(pu2.uuid(), 0);
         tr2.add_partitioned(pu1.uuid(), 0);
         pc2.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &tr2));
-        fail_unless(pc2.state() == Proto::S_TRANS);
+        ck_assert(pc2.state() == Proto::S_TRANS);
 
         View reg2(0, ViewId(V_REG, pc2.uuid(), seq + 1));
         reg2.add_member(pu2.uuid(), 0);
         reg2.add_partitioned(pu1.uuid(), 0);
         pc2.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &reg2));
-        fail_unless(pc2.state() == Proto::S_STATES_EXCH);
+        ck_assert(pc2.state() == Proto::S_STATES_EXCH);
 
         Datagram* dg2(pu2.tp()->out());
-        fail_unless(dg2 != 0);
+        ck_assert(dg2 != 0);
         pc2.handle_up(0, *dg2, ProtoUpMeta(pu2.uuid()));
-        fail_unless(pc2.state() == Proto::S_NON_PRIM);
+        ck_assert(pc2.state() == Proto::S_NON_PRIM);
+        delete dg2;
     }
     {
         View tr1(0, ViewId(V_TRANS, pc1.current_view().id()));
         tr1.add_member(pu1.uuid(), 0);
         tr1.add_member(pu3.uuid(), 0);
         pc1.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &tr1));
-        fail_unless(pc1.state() == Proto::S_TRANS);
+        ck_assert(pc1.state() == Proto::S_TRANS);
 
         View tr2(0, ViewId(V_TRANS, pc2.current_view().id()));
         tr2.add_member(pu2.uuid(), 0);
         pc2.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &tr2));
-        fail_unless(pc2.state() == Proto::S_TRANS);
+        ck_assert(pc2.state() == Proto::S_TRANS);
 
         View tr3(0, ViewId(V_TRANS, pc3.current_view().id()));
         tr3.add_member(pu1.uuid(), 0);
         tr3.add_member(pu3.uuid(), 0);
         pc3.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &tr3));
-        fail_unless(pc3.state() == Proto::S_TRANS);
+        ck_assert(pc3.state() == Proto::S_TRANS);
 
         int seq = pc1.current_view().id().seq();
         const UUID& reg_uuid1 = pu1.uuid() < pu2.uuid() ? pu1.uuid() : pu2.uuid();
@@ -3158,9 +2845,9 @@ static void _test_join_split_cluster(
         reg1.add_member(pu3.uuid(), 0);
         reg1.add_joined(pu2.uuid(), 0);
         pc1.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &reg1));
-        fail_unless(pc1.state() == Proto::S_STATES_EXCH);
+        ck_assert(pc1.state() == Proto::S_STATES_EXCH);
         pc3.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &reg1));
-        fail_unless(pc3.state() == Proto::S_STATES_EXCH);
+        ck_assert(pc3.state() == Proto::S_STATES_EXCH);
 
         View reg2(0, ViewId(V_REG, reg_uuid, seq + 1));
         reg2.add_member(pu1.uuid(), 0);
@@ -3169,7 +2856,7 @@ static void _test_join_split_cluster(
         reg2.add_joined(pu1.uuid(), 0);
         reg2.add_joined(pu3.uuid(), 0);
         pc2.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &reg2));
-        fail_unless(pc2.state() == Proto::S_STATES_EXCH);
+        ck_assert(pc2.state() == Proto::S_STATES_EXCH);
 
         Datagram* dg1(pu1.tp()->out());
         Datagram* dg2(pu2.tp()->out());
@@ -3177,15 +2864,15 @@ static void _test_join_split_cluster(
         pc1.handle_up(0, *dg1, ProtoUpMeta(pu1.uuid()));
         pc1.handle_up(0, *dg2, ProtoUpMeta(pu2.uuid()));
         pc1.handle_up(0, *dg3, ProtoUpMeta(pu3.uuid()));
-        fail_unless(pc1.state() == Proto::S_INSTALL);
+        ck_assert(pc1.state() == Proto::S_INSTALL);
         pc2.handle_up(0, *dg1, ProtoUpMeta(pu1.uuid()));
         pc2.handle_up(0, *dg2, ProtoUpMeta(pu2.uuid()));
         pc2.handle_up(0, *dg3, ProtoUpMeta(pu3.uuid()));
-        fail_unless(pc2.state() == Proto::S_INSTALL);
+        ck_assert(pc2.state() == Proto::S_INSTALL);
         pc3.handle_up(0, *dg1, ProtoUpMeta(pu1.uuid()));
         pc3.handle_up(0, *dg2, ProtoUpMeta(pu2.uuid()));
         pc3.handle_up(0, *dg3, ProtoUpMeta(pu3.uuid()));
-        fail_unless(pc3.state() == Proto::S_INSTALL);
+        ck_assert(pc3.state() == Proto::S_INSTALL);
         delete dg1;
         delete dg2;
         delete dg3;
@@ -3195,17 +2882,18 @@ static void _test_join_split_cluster(
         for (int i=0; i<3; i++) {
             if (pcs[i]->uuid() == reg_uuid) {
                 dg = pcs[i]->tp()->out();
-                fail_unless(dg != 0);
+                ck_assert(dg != 0);
             } else {
-                fail_if(pcs[i]->tp()->out());
+                ck_assert(!pcs[i]->tp()->out());
             }
         }
         pc1.handle_up(0, *dg, ProtoUpMeta(reg_uuid));
         pc2.handle_up(0, *dg, ProtoUpMeta(reg_uuid));
         pc3.handle_up(0, *dg, ProtoUpMeta(reg_uuid));
-        fail_unless(pc1.state() == Proto::S_PRIM);
-        fail_unless(pc2.state() == Proto::S_PRIM);
-        fail_unless(pc3.state() == Proto::S_PRIM);
+        ck_assert(pc1.state() == Proto::S_PRIM);
+        ck_assert(pc2.state() == Proto::S_PRIM);
+        ck_assert(pc3.state() == Proto::S_PRIM);
+        delete dg;
     }
 }
 START_TEST(test_join_split_cluster)
@@ -3314,21 +3002,21 @@ START_TEST(test_trac_762)
 
         // states exch
         Datagram* dg(tp1->out());
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pc1->handle_up(0, *dg, ProtoUpMeta(tp1->uuid()));
         pc2->handle_up(0, *dg, ProtoUpMeta(tp1->uuid()));
         pc3->handle_up(0, *dg, ProtoUpMeta(tp1->uuid()));
         delete dg;
 
         dg = tp2->out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pc1->handle_up(0, *dg, ProtoUpMeta(tp2->uuid()));
         pc2->handle_up(0, *dg, ProtoUpMeta(tp2->uuid()));
         pc3->handle_up(0, *dg, ProtoUpMeta(tp2->uuid()));
         delete dg;
 
         dg = tp3->out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pc1->handle_up(0, *dg, ProtoUpMeta(tp3->uuid()));
         pc2->handle_up(0, *dg, ProtoUpMeta(tp3->uuid()));
         pc3->handle_up(0, *dg, ProtoUpMeta(tp3->uuid()));
@@ -3336,7 +3024,7 @@ START_TEST(test_trac_762)
 
         // install message
         dg = tp1->out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pc1->handle_up(0, *dg, ProtoUpMeta(tp1->uuid()));
         pc2->handle_up(0, *dg, ProtoUpMeta(tp1->uuid()));
 
@@ -3375,13 +3063,13 @@ START_TEST(test_trac_762)
         pc2->handle_view(tr);
 
         Datagram* dg(tp1->out());
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pc1->handle_up(0, *dg, ProtoUpMeta(tp1->uuid()));
         pc2->handle_up(0, *dg, ProtoUpMeta(tp1->uuid()));
         delete dg;
 
         dg = tp2->out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pc1->handle_up(0, *dg, ProtoUpMeta(tp1->uuid()));
         pc2->handle_up(0, *dg, ProtoUpMeta(tp1->uuid()));
         delete dg;
@@ -3393,7 +3081,7 @@ START_TEST(test_trac_762)
         pc3->handle_view(reg);
 
         Datagram* dg(tp3->out());
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pc3->handle_up(0, *dg, ProtoUpMeta(tp3->uuid()));
         delete dg;
 
@@ -3416,21 +3104,21 @@ START_TEST(test_trac_762)
 
         // State msgs
         Datagram* dg(tp1->out());
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pc1->handle_up(0, *dg, ProtoUpMeta(tp1->uuid()));
         pc2->handle_up(0, *dg, ProtoUpMeta(tp1->uuid()));
         pc3->handle_up(0, *dg, ProtoUpMeta(tp1->uuid()));
         delete dg;
 
         dg = tp2->out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pc1->handle_up(0, *dg, ProtoUpMeta(tp2->uuid()));
         pc2->handle_up(0, *dg, ProtoUpMeta(tp2->uuid()));
         pc3->handle_up(0, *dg, ProtoUpMeta(tp2->uuid()));
         delete dg;
 
         dg = tp3->out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pc1->handle_up(0, *dg, ProtoUpMeta(tp3->uuid()));
         pc2->handle_up(0, *dg, ProtoUpMeta(tp3->uuid()));
         pc3->handle_up(0, *dg, ProtoUpMeta(tp3->uuid()));
@@ -3438,16 +3126,17 @@ START_TEST(test_trac_762)
 
         // Install msg
         dg = tp1->out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pc1->handle_up(0, *dg, ProtoUpMeta(tp1->uuid()));
         pc2->handle_up(0, *dg, ProtoUpMeta(tp1->uuid()));
         pc3->handle_up(0, *dg, ProtoUpMeta(tp1->uuid()));
 
-        fail_unless(tp1->out() == 0);
-        fail_unless(tp2->out() == 0);
-        fail_unless(tp3->out() == 0);
+        ck_assert(tp1->out() == 0);
+        ck_assert(tp2->out() == 0);
+        ck_assert(tp3->out() == 0);
+        delete dg;
     }
-
+    std::for_each(dn.begin(), dn.end(), gu::DeleteObject());
 }
 END_TEST
 
@@ -3492,45 +3181,49 @@ START_TEST(test_gh_92)
         tr1.add_partitioned(pu2.uuid(), 0);
         tr1.add_partitioned(pu3.uuid(), 0);
         pc1.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &tr1));
-        fail_unless(pc1.state() == Proto::S_TRANS);
+        ck_assert(pc1.state() == Proto::S_TRANS);
 
         View reg1(0, ViewId(V_REG, uuid1, seq + 1));
         reg1.add_member(pu1.uuid(), 0);
         pc1.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &reg1));
-        fail_unless(pc1.state() == Proto::S_STATES_EXCH);
+        ck_assert(pc1.state() == Proto::S_STATES_EXCH);
         dg = pu1.tp()->out();
         pc1.handle_up(0, *dg, ProtoUpMeta(pu1.uuid()));
-        fail_unless(pc1.state() == Proto::S_NON_PRIM);
+        ck_assert(pc1.state() == Proto::S_NON_PRIM);
 
         View tr2(0, ViewId(V_TRANS, pc2.current_view().id()));
         tr2.add_member(pu2.uuid(), 0);
         tr2.add_partitioned(pu1.uuid(), 0);
         tr2.add_partitioned(pu3.uuid(), 0);
         pc2.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &tr2));
-        fail_unless(pc2.state() == Proto::S_TRANS);
+        ck_assert(pc2.state() == Proto::S_TRANS);
 
         View reg2(0, ViewId(V_REG, uuid2, seq + 1));
         reg2.add_member(pu2.uuid(), 0);
         pc2.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &reg2));
-        fail_unless(pc2.state() == Proto::S_STATES_EXCH);
+        ck_assert(pc2.state() == Proto::S_STATES_EXCH);
+        delete dg;
         dg = pu2.tp()->out();
         pc2.handle_up(0, *dg, ProtoUpMeta(pu2.uuid()));
-        fail_unless(pc2.state() == Proto::S_NON_PRIM);
+        ck_assert(pc2.state() == Proto::S_NON_PRIM);
 
         View tr3(0, ViewId(V_TRANS, pc3.current_view().id()));
         tr3.add_member(pu3.uuid(), 0);
         tr3.add_partitioned(pu1.uuid(), 0);
         tr3.add_partitioned(pu2.uuid(), 0);
         pc3.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &tr3));
-        fail_unless(pc3.state() == Proto::S_TRANS);
+        ck_assert(pc3.state() == Proto::S_TRANS);
 
         View reg3(0, ViewId(V_REG, uuid3, seq + 1));
         reg3.add_member(pu3.uuid(), 0);
         pc3.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &reg3));
-        fail_unless(pc3.state() == Proto::S_STATES_EXCH);
+        ck_assert(pc3.state() == Proto::S_STATES_EXCH);
+        delete dg;
         dg = pu3.tp()->out();
         pc3.handle_up(0, *dg, ProtoUpMeta(pu3.uuid()));
-        fail_unless(pc3.state() == Proto::S_NON_PRIM);
+        ck_assert(pc3.state() == Proto::S_NON_PRIM);
+        delete dg;
+        dg = 0;
     }
     seq += 1;
 
@@ -3539,7 +3232,7 @@ START_TEST(test_gh_92)
         View tr1(0, ViewId(V_TRANS, pc1.current_view().id()));
         tr1.add_member(pu1.uuid(), 0);
         pc1.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &tr1));
-        fail_unless(pc1.state() == Proto::S_TRANS);
+        ck_assert(pc1.state() == Proto::S_TRANS);
 
         View reg1(0, ViewId(V_REG, uuid1, seq + 1));
         reg1.add_member(pu1.uuid(), 0);
@@ -3548,12 +3241,12 @@ START_TEST(test_gh_92)
         reg1.add_joined(pu2.uuid(), 0);
         reg1.add_joined(pu3.uuid(), 0);
         pc1.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &reg1));
-        fail_unless(pc1.state() == Proto::S_STATES_EXCH);
+        ck_assert(pc1.state() == Proto::S_STATES_EXCH);
 
         View tr2(0, ViewId(V_TRANS, pc2.current_view().id()));
         tr2.add_member(pu2.uuid(), 0);
         pc2.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &tr2));
-        fail_unless(pc2.state() == Proto::S_TRANS);
+        ck_assert(pc2.state() == Proto::S_TRANS);
 
         View reg2(0, ViewId(V_REG, uuid1, seq + 1));
         reg2.add_member(pu1.uuid(), 0);
@@ -3562,12 +3255,12 @@ START_TEST(test_gh_92)
         reg2.add_joined(pu1.uuid(), 0);
         reg2.add_joined(pu3.uuid(), 0);
         pc2.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &reg2));
-        fail_unless(pc2.state() == Proto::S_STATES_EXCH);
+        ck_assert(pc2.state() == Proto::S_STATES_EXCH);
 
         View tr3(0, ViewId(V_TRANS, pc3.current_view().id()));
         tr3.add_member(pu3.uuid(), 0);
         pc3.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &tr3));
-        fail_unless(pc3.state() == Proto::S_TRANS);
+        ck_assert(pc3.state() == Proto::S_TRANS);
 
         View reg3(0, ViewId(V_REG, uuid1, seq + 1));
         reg3.add_member(pu1.uuid(), 0);
@@ -3576,14 +3269,14 @@ START_TEST(test_gh_92)
         reg3.add_joined(pu1.uuid(), 0);
         reg3.add_joined(pu2.uuid(), 0);
         pc3.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &reg3));
-        fail_unless(pc3.state() == Proto::S_STATES_EXCH);
+        ck_assert(pc3.state() == Proto::S_STATES_EXCH);
 
         Datagram* dg1(pu1.tp()->out());
         Datagram* dg2(pu2.tp()->out());
         Datagram* dg3(pu3.tp()->out());
-        fail_unless(dg1 != 0);
-        fail_unless(dg2 != 0);
-        fail_unless(dg3 != 0);
+        ck_assert(dg1 != 0);
+        ck_assert(dg2 != 0);
+        ck_assert(dg3 != 0);
         pc1.handle_up(0, *dg1, ProtoUpMeta(pu1.uuid()));
         pc1.handle_up(0, *dg2, ProtoUpMeta(pu2.uuid()));
         pc1.handle_up(0, *dg3, ProtoUpMeta(pu3.uuid()));
@@ -3594,14 +3287,14 @@ START_TEST(test_gh_92)
         pc3.handle_up(0, *dg2, ProtoUpMeta(pu2.uuid()));
         pc3.handle_up(0, *dg3, ProtoUpMeta(pu3.uuid()));
         delete dg1; delete dg2; delete dg3;
-        fail_unless(pc1.state() == Proto::S_INSTALL);
-        fail_unless(pc2.state() == Proto::S_INSTALL);
-        fail_unless(pc3.state() == Proto::S_INSTALL);
+        ck_assert(pc1.state() == Proto::S_INSTALL);
+        ck_assert(pc2.state() == Proto::S_INSTALL);
+        ck_assert(pc3.state() == Proto::S_INSTALL);
 
         im = pu1.tp()->out();
-        fail_unless(im != 0);
-        fail_unless(pu2.tp()->out() == 0);
-        fail_unless(pu3.tp()->out() == 0);
+        ck_assert(im != 0);
+        ck_assert(pu2.tp()->out() == 0);
+        ck_assert(pu3.tp()->out() == 0);
     }
     seq += 1;
 
@@ -3614,12 +3307,12 @@ START_TEST(test_gh_92)
         tr1.add_partitioned(pu3.uuid(), 0);
         pc1.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &tr1));
         pc2.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &tr1));
-        fail_unless(pc1.state() == Proto::S_TRANS);
-        fail_unless(pc2.state() == Proto::S_TRANS);
+        ck_assert(pc1.state() == Proto::S_TRANS);
+        ck_assert(pc2.state() == Proto::S_TRANS);
         pc1.handle_up(0, *im, ProtoUpMeta(pu1.uuid()));
         pc2.handle_up(0, *im, ProtoUpMeta(pu1.uuid()));
-        fail_unless(pc1.state() == Proto::S_TRANS);
-        fail_unless(pc2.state() == Proto::S_TRANS);
+        ck_assert(pc1.state() == Proto::S_TRANS);
+        ck_assert(pc2.state() == Proto::S_TRANS);
 
         View reg1(0, ViewId(V_REG, uuid1, seq + 1));
         reg1.add_member(pu1.uuid(), 0);
@@ -3627,38 +3320,40 @@ START_TEST(test_gh_92)
         reg1.add_partitioned(pu3.uuid(), 0);
         pc1.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &reg1));
         pc2.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &reg1));
-        fail_unless(pc1.state() == Proto::S_STATES_EXCH);
-        fail_unless(pc2.state() == Proto::S_STATES_EXCH);
+        ck_assert(pc1.state() == Proto::S_STATES_EXCH);
+        ck_assert(pc2.state() == Proto::S_STATES_EXCH);
         Datagram* dg1(pu1.tp()->out());
         Datagram* dg2(pu2.tp()->out());
-        fail_unless(dg1 != 0);
-        fail_unless(dg2 != 0);
+        ck_assert(dg1 != 0);
+        ck_assert(dg2 != 0);
         pc1.handle_up(0, *dg1, ProtoUpMeta(pu1.uuid()));
         pc1.handle_up(0, *dg2, ProtoUpMeta(pu2.uuid()));
         pc2.handle_up(0, *dg1, ProtoUpMeta(pu1.uuid()));
         pc2.handle_up(0, *dg2, ProtoUpMeta(pu2.uuid()));
-        fail_unless(pc1.state() == Proto::S_NON_PRIM);
-        fail_unless(pc2.state() == Proto::S_NON_PRIM);
+        ck_assert(pc1.state() == Proto::S_NON_PRIM);
+        ck_assert(pc2.state() == Proto::S_NON_PRIM);
 
         View tr3(0, ViewId(V_TRANS, pc3.current_view().id()));
         tr3.add_member(pu3.uuid(), 0);
         tr3.add_partitioned(pu1.uuid(), 0);
         tr3.add_partitioned(pu2.uuid(), 0);
         pc3.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &tr3));
-        fail_unless(pc3.state() == Proto::S_TRANS);
+        ck_assert(pc3.state() == Proto::S_TRANS);
         pc3.handle_up(0, *im, ProtoUpMeta(pu1.uuid()));
-        fail_unless(pc3.state() == Proto::S_TRANS);
+        ck_assert(pc3.state() == Proto::S_TRANS);
 
         View reg3(0, ViewId(V_REG, uuid3, seq + 1));
         reg3.add_member(pu3.uuid(), 0);
         reg3.add_partitioned(pu1.uuid(), 0);
         reg3.add_partitioned(pu2.uuid(), 0);
         pc3.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &reg3));
-        fail_unless(pc3.state() == Proto::S_STATES_EXCH);
+        ck_assert(pc3.state() == Proto::S_STATES_EXCH);
         Datagram* dg3(pu3.tp()->out());
-        fail_unless(dg3 != 0);
+        ck_assert(dg3 != 0);
         pc3.handle_up(0, *dg3, ProtoUpMeta(pu3.uuid()));
-        fail_unless(pc3.state() == Proto::S_NON_PRIM);
+        ck_assert(pc3.state() == Proto::S_NON_PRIM);
+
+        delete dg1; delete dg2; delete dg3;
     }
     seq += 1;
 
@@ -3669,8 +3364,8 @@ START_TEST(test_gh_92)
         tr1.add_member(pu2.uuid(), 0);
         pc1.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &tr1));
         pc2.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &tr1));
-        fail_unless(pc1.state() == Proto::S_TRANS);
-        fail_unless(pc2.state() == Proto::S_TRANS);
+        ck_assert(pc1.state() == Proto::S_TRANS);
+        ck_assert(pc2.state() == Proto::S_TRANS);
 
         View reg1(0, ViewId(V_REG, uuid1, seq + 1));
         reg1.add_member(pu1.uuid(), 0);
@@ -3679,13 +3374,13 @@ START_TEST(test_gh_92)
         reg1.add_joined(pu3.uuid(), 0);
         pc1.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &reg1));
         pc2.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &reg1));
-        fail_unless(pc1.state() == Proto::S_STATES_EXCH);
-        fail_unless(pc2.state() == Proto::S_STATES_EXCH);
+        ck_assert(pc1.state() == Proto::S_STATES_EXCH);
+        ck_assert(pc2.state() == Proto::S_STATES_EXCH);
 
         View tr3(0, ViewId(V_TRANS, pc3.current_view().id()));
         tr3.add_member(pu3.uuid(), 0);
         pc3.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &tr3));
-        fail_unless(pc3.state() == Proto::S_TRANS);
+        ck_assert(pc3.state() == Proto::S_TRANS);
 
         View reg3(0, ViewId(V_REG, uuid1, seq + 1));
         reg3.add_member(pu1.uuid(), 0);
@@ -3694,14 +3389,14 @@ START_TEST(test_gh_92)
         reg3.add_joined(pu1.uuid(), 0);
         reg3.add_joined(pu2.uuid(), 0);
         pc3.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &reg3));
-        fail_unless(pc3.state() == Proto::S_STATES_EXCH);
+        ck_assert(pc3.state() == Proto::S_STATES_EXCH);
 
         Datagram* dg1(pu1.tp()->out());
         Datagram* dg2(pu2.tp()->out());
         Datagram* dg3(pu3.tp()->out());
-        fail_unless(dg1 != 0);
-        fail_unless(dg2 != 0);
-        fail_unless(dg3 != 0);
+        ck_assert(dg1 != 0);
+        ck_assert(dg2 != 0);
+        ck_assert(dg3 != 0);
         pc1.handle_up(0, *dg1, ProtoUpMeta(pu1.uuid()));
         pc1.handle_up(0, *dg2, ProtoUpMeta(pu2.uuid()));
         pc1.handle_up(0, *dg3, ProtoUpMeta(pu3.uuid()));
@@ -3712,20 +3407,22 @@ START_TEST(test_gh_92)
         pc3.handle_up(0, *dg2, ProtoUpMeta(pu2.uuid()));
         pc3.handle_up(0, *dg3, ProtoUpMeta(pu3.uuid()));
         delete dg1; delete dg2; delete dg3;
-        fail_unless(pc1.state() == Proto::S_INSTALL);
-        fail_unless(pc2.state() == Proto::S_INSTALL);
-        fail_unless(pc3.state() == Proto::S_INSTALL);
+        ck_assert(pc1.state() == Proto::S_INSTALL);
+        ck_assert(pc2.state() == Proto::S_INSTALL);
+        ck_assert(pc3.state() == Proto::S_INSTALL);
 
+        delete im;
         im = pu1.tp()->out();
-        fail_unless(im != 0);
-        fail_unless(pu2.tp()->out() == 0);
-        fail_unless(pu3.tp()->out() == 0);
+        ck_assert(im != 0);
+        ck_assert(pu2.tp()->out() == 0);
+        ck_assert(pu3.tp()->out() == 0);
         pc1.handle_up(0, *im, ProtoUpMeta(pu1.uuid()));
         pc2.handle_up(0, *im, ProtoUpMeta(pu1.uuid()));
         pc3.handle_up(0, *im, ProtoUpMeta(pu1.uuid()));
-        fail_unless(pc1.state() == Proto::S_PRIM);
-        fail_unless(pc2.state() == Proto::S_PRIM);
-        fail_unless(pc3.state() == Proto::S_PRIM);
+        ck_assert(pc1.state() == Proto::S_PRIM);
+        ck_assert(pc2.state() == Proto::S_PRIM);
+        ck_assert(pc3.state() == Proto::S_PRIM);
+        delete im;
     }
 }
 END_TEST
@@ -3778,13 +3475,13 @@ START_TEST(test_prim_after_evict)
         pc1.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &reg1));
         // States exch
         Datagram* dg(tp1.out());
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pc1.handle_up(0, *dg, ProtoUpMeta(pc1.uuid()));
         delete dg;
         // Non-prim
         dg = tp1.out();
-        fail_unless(dg == 0);
-        fail_unless(pc1.state() == Proto::S_NON_PRIM);
+        ck_assert(dg == 0);
+        ck_assert(pc1.state() == Proto::S_NON_PRIM);
     }
 
     // Node 2 partitions
@@ -3801,13 +3498,13 @@ START_TEST(test_prim_after_evict)
         pc2.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &reg2));
         // States exch
         Datagram* dg(tp2.out());
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pc2.handle_up(0, *dg, ProtoUpMeta(pc2.uuid()));
         delete dg;
         // Non-prim
         dg = tp2.out();
-        fail_unless(dg == 0);
-        fail_unless(pc2.state() == Proto::S_NON_PRIM);
+        ck_assert(dg == 0);
+        ck_assert(pc2.state() == Proto::S_NON_PRIM);
     }
 
     // Just forget about node3, it is gone forever
@@ -3824,16 +3521,16 @@ START_TEST(test_prim_after_evict)
         tr1.add_member(pc1.uuid(), 0);
         pc1.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &tr1));
         Datagram *dg(tp1.out());
-        fail_unless(dg == 0);
-        fail_unless(pc1.state() == Proto::S_TRANS);
+        ck_assert(dg == 0);
+        ck_assert(pc1.state() == Proto::S_TRANS);
 
         // Trans view for node 2
         View tr2(1, ViewId(V_TRANS, pc2.current_view().id()));
         tr2.add_member(pc2.uuid(), 0);
         pc2.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &tr2));
         dg = tp2.out();
-        fail_unless(dg == 0);
-        fail_unless(pc2.state() == Proto::S_TRANS);
+        ck_assert(dg == 0);
+        ck_assert(pc2.state() == Proto::S_TRANS);
 
         // Reg view for nodes 1 and 2
         View reg(1, ViewId(V_REG, pc1.uuid(), tr1.id().seq() + 1));
@@ -3843,217 +3540,314 @@ START_TEST(test_prim_after_evict)
         pc2.handle_up(0, Datagram(), ProtoUpMeta(UUID::nil(), ViewId(), &reg));
 
         // States exchange
-        fail_unless(pc1.state() == Proto::S_STATES_EXCH);
-        fail_unless(pc2.state() == Proto::S_STATES_EXCH);
+        ck_assert(pc1.state() == Proto::S_STATES_EXCH);
+        ck_assert(pc2.state() == Proto::S_STATES_EXCH);
 
         // State message from node 1
         dg = tp1.out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pc1.handle_up(0, *dg, ProtoUpMeta(pc1.uuid()));
         pc2.handle_up(0, *dg, ProtoUpMeta(pc1.uuid()));
         delete dg;
         dg = tp1.out();
-        fail_unless(dg == 0);
+        ck_assert(dg == 0);
 
         // State message from node 2
         dg = tp2.out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pc1.handle_up(0, *dg, ProtoUpMeta(pc2.uuid()));
         pc2.handle_up(0, *dg, ProtoUpMeta(pc2.uuid()));
         delete dg;
         dg = tp2.out();
-        fail_unless(dg == 0);
+        ck_assert(dg == 0);
 
         // Install
-        fail_unless(pc1.state() == Proto::S_INSTALL, "state is %s",
-                    Proto::to_string(pc1.state()).c_str());
-        fail_unless(pc2.state() == Proto::S_INSTALL, "state is %s",
-                    Proto::to_string(pc2.state()).c_str());
+        ck_assert_msg(pc1.state() == Proto::S_INSTALL, "state is %s",
+                      Proto::to_string(pc1.state()).c_str());
+        ck_assert_msg(pc2.state() == Proto::S_INSTALL, "state is %s",
+                      Proto::to_string(pc2.state()).c_str());
 
         // Install message from node 1
         dg = tp1.out();
-        fail_unless(dg != 0);
+        ck_assert(dg != 0);
         pc1.handle_up(0, *dg, ProtoUpMeta(pc1.uuid()));
         pc2.handle_up(0, *dg, ProtoUpMeta(pc1.uuid()));
         delete dg;
 
         // Prim
         dg = tp1.out();
-        fail_unless(dg == 0);
+        ck_assert(dg == 0);
         dg = tp2.out();
-        fail_unless(dg == 0);
-        fail_unless(pc1.state() == Proto::S_PRIM);
-        fail_unless(pc2.state() == Proto::S_PRIM);
+        ck_assert(dg == 0);
+        ck_assert(pc1.state() == Proto::S_PRIM);
+        ck_assert(pc2.state() == Proto::S_PRIM);
     }
 
 
 }
 END_TEST
 
+class DummyEvs : public gcomm::Bottomlay
+{
+public:
+    DummyEvs(gu::Config& conf) : gcomm::Bottomlay(conf) { }
+    int handle_down(Datagram&, const ProtoDownMeta&) { return 0; }
+};
+
+class DummyTop : public gcomm::Toplay
+{
+public:
+    DummyTop(gu::Config& conf) : gcomm::Toplay(conf) { }
+    void handle_up(const void*, const gcomm::Datagram&,
+                   const gcomm::ProtoUpMeta&) { }
+};
+
+// Test outline:
+// * Three node cluster, nodes n1, n2, n3
+// * Current primary view is (n1, n2), view number 2
+// * Group is merging, current EVS view is (n1, n2, n3),
+//   view number 3
+// * State messages have been delivered, but group partitioned again when
+//   install message was being sent.
+// * Underlying EVS membership changes so that the transitional view
+//   ends up in (n1, n3), paritioned (n2)
+// * It is expected that the n1 ends up in non-primary component.
+START_TEST(test_quorum_2_to_2_in_3_node_cluster)
+{
+    gu_log_max_level = GU_LOG_DEBUG;
+    gcomm::pc::ProtoBuilder builder;
+    gu::Config conf;
+    gu::ssl_register_params(conf);
+    gcomm::Conf::register_params(conf);
+
+    // Current view is EVS view (n1, n2, n3), view number 3
+    gcomm::View current_view(0, gcomm::ViewId(V_REG, gcomm::UUID(1), 3));
+    current_view.add_member(gcomm::UUID(1), 0);
+    current_view.add_member(gcomm::UUID(2), 0);
+    current_view.add_member(gcomm::UUID(3), 0);
+
+    // Primary component view (n1, n2), view number 2
+    gcomm::View pc_view(0, gcomm::ViewId(V_PRIM, gcomm::UUID(1), 2));
+    pc_view.add_member(gcomm::UUID(1), 0);
+    pc_view.add_member(gcomm::UUID(2), 0);
+
+    // Known instances according to state messages.
+    gcomm::pc::Node node1(true, false, false, 0,
+                          gcomm::ViewId(V_PRIM, gcomm::UUID(1), 2),
+                          0, 1, 0);
+    gcomm::pc::Node node2(true, false, false, 0,
+                          gcomm::ViewId(V_PRIM, gcomm::UUID(1), 2),
+                          0, 1, 0);
+    gcomm::pc::Node node3(false, false, false, 0,
+                          gcomm::ViewId(V_PRIM, gcomm::UUID(1), 1),
+                          0, 1, 0);
+    gcomm::pc::NodeMap instances;
+    instances.insert(std::make_pair(gcomm::UUID(1), node1));
+    instances.insert(std::make_pair(gcomm::UUID(2), node2));
+    instances.insert(std::make_pair(gcomm::UUID(3), node3));
+
+    // State messages for all nodes.
+    // * Nodes n1, n2 report previous prim view (n1, n2), view number 2.
+    // * Node 3 reports previous prim view (n1, n2, n3), view number 1.
+    gcomm::pc::Proto::SMMap state_msgs;
+    {
+        // Node n1
+        gcomm::pc::NodeMap nm;
+        nm.insert(std::make_pair(gcomm::UUID(1), node1));
+        nm.insert(std::make_pair(gcomm::UUID(2), node2));
+        gcomm::pc::Message msg(1, gcomm::pc::Message::PC_T_STATE, 0, nm);
+        state_msgs.insert(std::make_pair(gcomm::UUID(1), msg));
+    }
+    {
+        // Node n2
+        gcomm::pc::NodeMap nm;
+        nm.insert(std::make_pair(gcomm::UUID(1), node1));
+        nm.insert(std::make_pair(gcomm::UUID(2), node2));
+        gcomm::pc::Message msg(1, gcomm::pc::Message::PC_T_STATE, 0, nm);
+        state_msgs.insert(std::make_pair(gcomm::UUID(2), msg));
+    }
+    {
+        // Node3
+        gcomm::pc::NodeMap nm;
+        // Nodes n1 and n2 have previously been seen in prim view number 1
+        nm.insert(std::make_pair(gcomm::UUID(1),
+                                 gcomm::pc::Node(
+                                     false, false, false, 0,
+                                     gcomm::ViewId(V_PRIM, gcomm::UUID(1), 1),
+                                     0, 1, 0)));
+        nm.insert(std::make_pair(gcomm::UUID(2),
+                                 gcomm::pc::Node(
+                                     false, false, false, 0,
+                                     gcomm::ViewId(V_PRIM, gcomm::UUID(1), 1),
+                                     0, 1, 0)));
+        nm.insert(std::make_pair(gcomm::UUID(3), node3));
+        gcomm::pc::Message msg(1, gcomm::pc::Message::PC_T_STATE, 0, nm);
+        state_msgs.insert(std::make_pair(gcomm::UUID(3), msg));
+    }
+
+    // Build n1 state in S_INSTALL.
+    builder
+        .conf(conf)
+        .uuid(gcomm::UUID(1))
+        .state_msgs(state_msgs)
+        .current_view(current_view)
+        .pc_view(pc_view)
+        .instances(instances)
+        .state(gcomm::pc::Proto::S_INSTALL);
+    std::auto_ptr<gcomm::pc::Proto> p(builder.make_proto());
+    DummyEvs devs(conf);
+    DummyTop dtop(conf);
+    gcomm::connect(&devs, p.get());
+    gcomm::connect(p.get(), &dtop);
+
+    // Deliver transitional EVS view where members are n1, n3 and
+    // partitioned n2. After handling transitional view n1 is
+    // expected to end up in non-primary.
+    gcomm::View trans_view(0, gcomm::ViewId(V_TRANS, gcomm::UUID(1), 3));
+    trans_view.add_member(gcomm::UUID(1), 0);
+    trans_view.add_partitioned(gcomm::UUID(2), 0);
+    trans_view.add_member(gcomm::UUID(3), 0);
+
+    p->handle_view(trans_view);
+
+    ck_assert(p->state() == gcomm::pc::Proto::S_TRANS);
+    ck_assert(not p->prim());
+}
+END_TEST
 
 Suite* pc_suite()
 {
     Suite* s = suite_create("gcomm::pc");
     TCase* tc;
 
-    bool skip = false;
+    tc = tcase_create("test_pc_messages");
+    tcase_add_test(tc, test_pc_messages);
+    suite_add_tcase(s, tc);
 
-    if (!skip) {
-        tc = tcase_create("test_pc_messages");
-        tcase_add_test(tc, test_pc_messages);
-        suite_add_tcase(s, tc);
+    tc = tcase_create("test_pc_view_changes_single");
+    tcase_add_test(tc, test_pc_view_changes_single);
+    suite_add_tcase(s, tc);
 
-        tc = tcase_create("test_pc_view_changes_single");
-        tcase_add_test(tc, test_pc_view_changes_single);
-        suite_add_tcase(s, tc);
+    tc = tcase_create("test_pc_view_changes_double");
+    tcase_add_test(tc, test_pc_view_changes_double);
+    suite_add_tcase(s, tc);
 
-        tc = tcase_create("test_pc_view_changes_double");
-        tcase_add_test(tc, test_pc_view_changes_double);
-        suite_add_tcase(s, tc);
+    tc = tcase_create("test_pc_view_changes_reverse");
+    tcase_add_test(tc, test_pc_view_changes_reverse);
+    suite_add_tcase(s, tc);
 
-        tc = tcase_create("test_pc_view_changes_reverse");
-        tcase_add_test(tc, test_pc_view_changes_reverse);
-        suite_add_tcase(s, tc);
+    tc = tcase_create("test_pc_state1");
+    tcase_add_test(tc, test_pc_state1);
+    suite_add_tcase(s, tc);
 
-        tc = tcase_create("test_pc_state1");
-        tcase_add_test(tc, test_pc_state1);
-        suite_add_tcase(s, tc);
+    tc = tcase_create("test_pc_state2");
+    tcase_add_test(tc, test_pc_state2);
+    suite_add_tcase(s, tc);
 
-        tc = tcase_create("test_pc_state2");
-        tcase_add_test(tc, test_pc_state2);
-        suite_add_tcase(s, tc);
+    tc = tcase_create("test_pc_state3");
+    tcase_add_test(tc, test_pc_state3);
+    suite_add_tcase(s, tc);
 
-        tc = tcase_create("test_pc_state3");
-        tcase_add_test(tc, test_pc_state3);
-        suite_add_tcase(s, tc);
+    tc = tcase_create("test_pc_conflicting_prims");
+    tcase_add_test(tc, test_pc_conflicting_prims);
+    suite_add_tcase(s, tc);
 
-        tc = tcase_create("test_pc_conflicting_prims");
-        tcase_add_test(tc, test_pc_conflicting_prims);
-        suite_add_tcase(s, tc);
+    tc = tcase_create("test_pc_conflicting_prims_npvo");
+    tcase_add_test(tc, test_pc_conflicting_prims_npvo);
+    suite_add_tcase(s, tc);
 
-        tc = tcase_create("test_pc_conflicting_prims_npvo");
-        tcase_add_test(tc, test_pc_conflicting_prims_npvo);
-        suite_add_tcase(s, tc);
+    tc = tcase_create("test_pc_split_merge");
+    tcase_add_test(tc, test_pc_split_merge);
+    tcase_set_timeout(tc, 15);
+    suite_add_tcase(s, tc);
 
-        if (run_all_pc_tests() == true)
-        {
-            tc = tcase_create("test_pc_split_merge");
-            tcase_add_test(tc, test_pc_split_merge);
-            tcase_set_timeout(tc, 15);
-            suite_add_tcase(s, tc);
+    tc = tcase_create("test_pc_split_merge_w_user_msg");
+    tcase_add_test(tc, test_pc_split_merge_w_user_msg);
+    tcase_set_timeout(tc, 15);
+    suite_add_tcase(s, tc);
 
-            tc = tcase_create("test_pc_split_merge_w_user_msg");
-            tcase_add_test(tc, test_pc_split_merge_w_user_msg);
-            tcase_set_timeout(tc, 15);
-            suite_add_tcase(s, tc);
+    tc = tcase_create("test_pc_complete_split_merge");
+    tcase_add_test(tc, test_pc_complete_split_merge);
+    tcase_set_timeout(tc, 25);
+    suite_add_tcase(s, tc);
 
-            tc = tcase_create("test_pc_complete_split_merge");
-            tcase_add_test(tc, test_pc_complete_split_merge);
-            tcase_set_timeout(tc, 25);
-            suite_add_tcase(s, tc);
+    tc = tcase_create("test_pc_protocol_upgrade");
+    tcase_add_test(tc, test_pc_protocol_upgrade);
+    tcase_set_timeout(tc, 25);
+    suite_add_tcase(s, tc);
 
-            tc = tcase_create("test_pc_protocol_upgrade");
-            tcase_add_test(tc, test_pc_protocol_upgrade);
-            tcase_set_timeout(tc, 25);
-            suite_add_tcase(s, tc);
+    tc = tcase_create("test_trac_191");
+    tcase_add_test(tc, test_trac_191);
+    suite_add_tcase(s, tc);
 
-            tc = tcase_create("test_pc_transport");
-            tcase_add_test(tc, test_pc_transport);
-            tcase_set_timeout(tc, 35);
-            suite_add_tcase(s, tc);
-        }
+    tc = tcase_create("test_trac_413");
+    tcase_add_test(tc, test_trac_413);
+    suite_add_tcase(s, tc);
 
-        tc = tcase_create("test_trac_191");
-        tcase_add_test(tc, test_trac_191);
-        suite_add_tcase(s, tc);
+    tc = tcase_create("test_fifo_violation");
+    tcase_add_test(tc, test_fifo_violation);
+    suite_add_tcase(s, tc);
 
-        tc = tcase_create("test_trac_413");
-        tcase_add_test(tc, test_trac_413);
-        suite_add_tcase(s, tc);
+    tc = tcase_create("test_checksum");
+    tcase_add_test(tc, test_checksum);
+    suite_add_tcase(s, tc);
 
-        tc = tcase_create("test_fifo_violation");
-        tcase_add_test(tc, test_fifo_violation);
-        suite_add_tcase(s, tc);
+    tc = tcase_create("test_trac_277");
+    tcase_add_test(tc, test_trac_277);
+    suite_add_tcase(s, tc);
 
-        tc = tcase_create("test_checksum");
-        tcase_add_test(tc, test_checksum);
-        suite_add_tcase(s, tc);
+    tc = tcase_create("test_trac_622_638");
+    tcase_add_test(tc, test_trac_622_638);
+    suite_add_tcase(s, tc);
 
-        tc = tcase_create("test_set_param");
-        tcase_add_test(tc, test_set_param);
-        suite_add_tcase(s, tc);
+    tc = tcase_create("test_weighted_quorum");
+    tcase_add_test(tc, test_weighted_quorum);
+    suite_add_tcase(s, tc);
 
-        if (run_all_pc_tests() == true)
-        {
-            tc = tcase_create("test_trac_599");
-            tcase_add_test(tc, test_trac_599);
-            suite_add_tcase(s, tc);
-        }
+    tc = tcase_create("test_weighted_partitioning_1");
+    tcase_add_test(tc, test_weighted_partitioning_1);
+    suite_add_tcase(s, tc);
 
-        tc = tcase_create("test_trac_620");
-        tcase_add_test(tc, test_trac_620);
-        suite_add_tcase(s, tc);
+    tc = tcase_create("test_weighted_partitioning_2");
+    tcase_add_test(tc, test_weighted_partitioning_2);
+    suite_add_tcase(s, tc);
 
-        if (run_all_pc_tests() == true)
-        {
-            tc = tcase_create("test_trac_277");
-            tcase_add_test(tc, test_trac_277);
-            suite_add_tcase(s, tc);
+    tc = tcase_create("test_weight_change_partitioning_1");
+    tcase_add_test(tc, test_weight_change_partitioning_1);
+    suite_add_tcase(s, tc);
 
-            tc = tcase_create("test_trac_622_638");
-            tcase_add_test(tc, test_trac_622_638);
-            suite_add_tcase(s, tc);
+    tc = tcase_create("test_weight_change_partitioning_2");
+    tcase_add_test(tc, test_weight_change_partitioning_2);
+    suite_add_tcase(s, tc);
 
-            tc = tcase_create("test_weighted_quorum");
-            tcase_add_test(tc, test_weighted_quorum);
-            suite_add_tcase(s, tc);
-        }
+    tc = tcase_create("test_weight_change_joining");
+    tcase_add_test(tc, test_weight_change_joining);
+    suite_add_tcase(s, tc);
 
-        tc = tcase_create("test_weighted_partitioning_1");
-        tcase_add_test(tc, test_weighted_partitioning_1);
-        suite_add_tcase(s, tc);
+    tc = tcase_create("test_weight_change_leaving");
+    tcase_add_test(tc, test_weight_change_leaving);
+    suite_add_tcase(s, tc);
 
-        tc = tcase_create("test_weighted_partitioning_2");
-        tcase_add_test(tc, test_weighted_partitioning_2);
-        suite_add_tcase(s, tc);
+    tc = tcase_create("test_trac_762");
+    tcase_add_test(tc, test_trac_762);
+    tcase_set_timeout(tc, 15);
+    suite_add_tcase(s, tc);
 
+    tc = tcase_create("test_join_split_cluster");
+    tcase_add_test(tc, test_join_split_cluster);
+    suite_add_tcase(s, tc);
 
-        tc = tcase_create("test_weight_change_partitioning_1");
-        tcase_add_test(tc, test_weight_change_partitioning_1);
-        suite_add_tcase(s, tc);
+    tc = tcase_create("test_gh_92");
+    tcase_add_test(tc, test_gh_92);
+    suite_add_tcase(s, tc);
 
-        tc = tcase_create("test_weight_change_partitioning_2");
-        tcase_add_test(tc, test_weight_change_partitioning_2);
-        suite_add_tcase(s, tc);
+    tc = tcase_create("test_prim_after_evict");
+    tcase_add_test(tc, test_prim_after_evict);
+    suite_add_tcase(s, tc);
 
-        tc = tcase_create("test_weight_change_joining");
-        tcase_add_test(tc, test_weight_change_joining);
-        suite_add_tcase(s, tc);
-
-        tc = tcase_create("test_weight_change_leaving");
-        tcase_add_test(tc, test_weight_change_leaving);
-        suite_add_tcase(s, tc);
-
-        if (run_all_pc_tests() == true)
-        {
-            tc = tcase_create("test_trac_762");
-            tcase_add_test(tc, test_trac_762);
-            tcase_set_timeout(tc, 15);
-            suite_add_tcase(s, tc);
-        }
-
-        tc = tcase_create("test_join_split_cluster");
-        tcase_add_test(tc, test_join_split_cluster);
-        suite_add_tcase(s, tc);
-
-        tc = tcase_create("test_gh_92");
-        tcase_add_test(tc, test_gh_92);
-        suite_add_tcase(s, tc);
-
-        tc = tcase_create("test_prim_after_evict");
-        tcase_add_test(tc, test_prim_after_evict);
-        suite_add_tcase(s, tc);
-    }
+    tc = tcase_create("test_quorum_2_to_2_in_3_node_cluster");
+    tcase_add_test(tc, test_quorum_2_to_2_in_3_node_cluster);
+    suite_add_tcase(s, tc);
 
     return s;
 }

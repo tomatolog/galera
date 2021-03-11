@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2016 Codership Oy <info@codership.com>
+ * Copyright (C) 2008-2020 Codership Oy <info@codership.com>
  *
  * $Id$
  */
@@ -28,6 +28,7 @@ typedef enum gcs_group_state
     GCS_GROUP_WAIT_STATE_UUID,
     GCS_GROUP_WAIT_STATE_MSG,
     GCS_GROUP_PRIMARY,
+    GCS_GROUP_INCONSISTENT,
     GCS_GROUP_STATE_MAX
 }
 gcs_group_state_t;
@@ -56,6 +57,9 @@ typedef struct gcs_group
     gu_seqno_t       prim_seqno;
     long             prim_num;
     gcs_node_state_t prim_state;
+    int              prim_gcs_ver;
+    int              prim_repl_ver;
+    int              prim_appl_ver;
 
     /* max supported protocols */
     gcs_proto_t const gcs_proto_ver;
@@ -89,6 +93,15 @@ extern int
 gcs_group_init_history (gcs_group_t*     group,
                         gcs_seqno_t      seqno,
                         const gu_uuid_t* uuid);
+
+#ifdef GCS_CORE_TESTING
+/*!
+ * Free group nodes. Should not be used directly, exposed only for
+ * unit tests.
+ */
+extern void
+group_nodes_free (gcs_group_t* group);
+#endif // GCS_CORE_TESTING
 
 /*!
  * Free group resources
@@ -146,7 +159,7 @@ gcs_group_handle_act_msg (gcs_group_t*          const group,
                           struct gcs_act_rcvd*  const rcvd,
                           bool commonly_supported_version)
 {
-    long const sender_idx = msg->sender_idx;
+    int  const sender_idx = msg->sender_idx;
     bool const local      = (sender_idx == group->my_idx);
     ssize_t ret;
 
@@ -168,6 +181,7 @@ gcs_group_handle_act_msg (gcs_group_t*          const group,
         assert (ret == rcvd->act.buf_len);
 
         rcvd->act.type = frg->act_type;
+        rcvd->sender_idx = sender_idx;
 
         if (gu_likely(GCS_ACT_TORDERED  == rcvd->act.type &&
                       GCS_GROUP_PRIMARY == group->state   &&

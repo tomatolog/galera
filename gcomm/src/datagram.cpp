@@ -58,8 +58,8 @@ gcomm::crc16(const gcomm::Datagram& dg, size_t offset)
         offset -= dg.header_len();
     }
 
-    crc.process_block(&(*dg.payload_)[0] + offset,
-                      &(*dg.payload_)[0] + dg.payload_->size());
+    crc.process_block(dg.payload_->data() + offset,
+                      dg.payload_->data() + dg.payload_->size());
 
     return crc.checksum();
 }
@@ -68,8 +68,7 @@ uint32_t
 gcomm::crc32(gcomm::NetHeader::checksum_t const type,
              const gcomm::Datagram& dg, size_t offset)
 {
-    boost::crc_32_type crc;
-    gu::byte_t         lenb[4];
+    gu::byte_t lenb[4];
 
     gu::serialize4(static_cast<int32_t>(dg.len() - offset),
                    lenb, sizeof(lenb), 0);
@@ -91,8 +90,8 @@ gcomm::crc32(gcomm::NetHeader::checksum_t const type,
             offset -= dg.header_len();
         }
 
-        crc.process_block(&(*dg.payload_)[0] + offset,
-                          &(*dg.payload_)[0] + dg.payload_->size());
+        crc.process_block(dg.payload_->data() + offset,
+                          dg.payload_->data() + dg.payload_->size());
 
         return crc.checksum();
     }
@@ -113,7 +112,7 @@ gcomm::crc32(gcomm::NetHeader::checksum_t const type,
             offset -= dg.header_len();
         }
 
-        crc.append (&(*dg.payload_)[0] + offset, dg.payload_->size() - offset);
+        crc.append (dg.payload_->data() + offset, dg.payload_->size() - offset);
 
         return crc();
     }

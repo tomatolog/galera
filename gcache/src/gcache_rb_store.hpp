@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2018 Codership Oy <info@codership.com>
+ * Copyright (C) 2010-2020 Codership Oy <info@codership.com>
  */
 
 /*! @file ring buffer storage class */
@@ -127,6 +127,13 @@ namespace gcache
 
         void set_debug(int const dbg) { debug_ = dbg & DEBUG; }
 
+#ifdef GCACHE_RB_UNIT_TEST
+        ptrdiff_t offset(const void* const ptr) const
+        {
+            return static_cast<const uint8_t*>(ptr) - start_;
+        }
+#endif
+
     private:
 
         static size_t const PREAMBLE_LEN = 1024;
@@ -180,7 +187,7 @@ namespace gcache
         void          close_preamble();
 
         // returns lower bound (not inclusive) of valid seqno range
-        int64_t       scan(off_t offset, int scan_step);
+        seqno_t       scan(off_t offset, int scan_step);
         void          recover(off_t offset, int version);
 
         void          estimate_space();

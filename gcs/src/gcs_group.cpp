@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2016 Codership Oy <info@codership.com>
+ * Copyright (C) 2008-2020 Codership Oy <info@codership.com>
  *
  * $Id$
  */
@@ -56,6 +56,9 @@ gcs_group_init (gcs_group_t* group, gcache_t* const cache,
     group->prim_seqno = GCS_SEQNO_ILL;
     group->prim_num   = 0;
     group->prim_state = GCS_NODE_STATE_NON_PRIM;
+    group->prim_gcs_ver  = 0;
+    group->prim_repl_ver = 0;
+    group->prim_appl_ver = 0;
 
     *(gcs_proto_t*)&group->gcs_proto_ver = gcs_proto_ver;
     *(int*)&group->repl_proto_ver = repl_proto_ver;
@@ -125,7 +128,10 @@ group_nodes_init (const gcs_group_t* group, const gcs_comp_msg_t* comp)
 }
 
 /* Free nodes array */
-static void
+#ifndef GCS_CORE_TESTING
+static
+#endif // GCS_CORE_TESTING
+void
 group_nodes_free (gcs_group_t* group)
 {
     int i;
@@ -187,7 +193,8 @@ group_redo_last_applied (gcs_group_t* group)
                      GCS_NODE_STATE_DONOR  == node->status);
         }
 
-//        gu_debug ("last_applied[%ld]: %lld", n, seqno);
+//        gu_debug("redo_last_applied[%ld]: %lld, count: %s",
+//                 n, seqno, count ? "yes" : "no");
 
         /* NOTE: It is crucial for consistency that last_applied algorithm
          *       is absolutely identical on all nodes. Therefore for the
@@ -234,6 +241,32 @@ group_go_non_primary (gcs_group_t* group)
     group->state   = GCS_GROUP_NON_PRIMARY;
     group->conf_id = GCS_SEQNO_ILL;
     // what else? Do we want to change anything about the node here?
+}
+
+static void
+group_check_proto_ver(gcs_group_t* group)
+{
+    assert(group->quorum.primary); // must be called only on primary CC
+
+    gcs_node_t& node(group->nodes[group->my_idx]);
+    bool fail(false);
+
+#define GROUP_CHECK_NODE_PROTO_VER(LEVEL)                               \
+    if (node.LEVEL < group->quorum.LEVEL) {                             \
+        gu_fatal("Group requested %s: %d, max supported by this node: %d." \
+                 "Upgrade the node before joining this group."          \
+                 "Need to abort.",                                      \
+                 #LEVEL, group->quorum.LEVEL, node.LEVEL);              \
+        fail = true;                                                    \
+    }
+
+    GROUP_CHECK_NODE_PROTO_VER(gcs_proto_ver);
+    GROUP_CHECK_NODE_PROTO_VER(repl_proto_ver);
+    GROUP_CHECK_NODE_PROTO_VER(appl_proto_ver);
+
+#undef GROUP_CHECK_NODE_PROTO_VER
+
+    if (fail) gu_abort();
 }
 
 static const char group_empty_id[GCS_COMP_MEMB_ID_MAX_LEN + 1] = { 0, };
@@ -321,10 +354,11 @@ group_post_state_exchange (gcs_group_t* group)
             {
                 gu_fatal("Reversing history: %lld -> %lld, this member has "
                          "applied %lld more events than the primary component."
-                         "Data loss is possible. Aborting.",
+                         "Data loss is possible. Must abort.",
                          (long long)group->act_id_, (long long)quorum->act_id,
                          (long long)(group->act_id_ - quorum->act_id));
-                gu_abort();
+                group->state  = GCS_GROUP_INCONSISTENT;
+                return;
             }
             group->state      = GCS_GROUP_PRIMARY;
             group->act_id_    = quorum->act_id;
@@ -347,6 +381,14 @@ group_post_state_exchange (gcs_group_t* group)
         }
 
         assert (group->prim_num > 0);
+
+#define GROUP_UPDATE_PROTO_VER(LEVEL) \
+        if (group->prim_##LEVEL##_ver < quorum->LEVEL##_proto_ver) \
+            group->prim_##LEVEL##_ver = quorum->LEVEL##_proto_ver;
+        GROUP_UPDATE_PROTO_VER(gcs);
+        GROUP_UPDATE_PROTO_VER(repl);
+        GROUP_UPDATE_PROTO_VER(appl);
+#undef GROUP_UPDATE_PROTO_VER
     }
     else {
         // non-primary configuration
@@ -372,6 +414,7 @@ group_post_state_exchange (gcs_group_t* group)
              quorum->appl_proto_ver,
              GU_UUID_ARGS(&quorum->group_uuid));
 
+    if (quorum->primary) group_check_proto_ver(group);
     group_check_donor(group);
 }
 
@@ -780,26 +823,20 @@ gcs_group_handle_join_msg  (gcs_group_t* group, const gcs_recv_msg_t* msg)
             }
         }
         else {
-            if (sender_idx == peer_idx) {
-                if (GCS_NODE_STATE_JOINED == sender->status) {
-                    gu_info ("Member %d.%d (%s) resyncs itself to group",
-                             sender_idx, sender->segment, sender->name);
+            if (GCS_NODE_STATE_JOINED == sender->status) {
+                if (sender_idx == peer_idx) {
+                    gu_info("Member %d.%d (%s) resyncs itself to group.",
+                            sender_idx, sender->segment, sender->name);
                 }
                 else {
-                    assert(sender->desync_count > 0);
-                    return 0; // don't deliver up
+                    gu_info("%d.%d (%s): State transfer %s %d.%d (%s) complete.",
+                            sender_idx, sender->segment, sender->name, st_dir,
+                            peer_idx, peer ? peer->segment : -1, peer_name);
                 }
             }
             else {
-                if (GCS_NODE_STATE_JOINED == sender->status) {
-                    gu_info ("%d.%d (%s): State transfer %s %d.%d (%s) complete.",
-                             sender_idx, sender->segment, sender->name, st_dir,
-                             peer_idx, peer ? peer->segment : -1, peer_name);
-                }
-                else {
-                    assert(sender->desync_count > 0);
-                    return 0; // don't deliver up
-                }
+                assert(sender->desync_count > 0);
+                return 0; // don't deliver up
             }
         }
     }
@@ -1390,6 +1427,10 @@ group_select_donor (gcs_group_t* group,
 void
 gcs_group_ignore_action (gcs_group_t* group, struct gcs_act_rcvd* act)
 {
+    gu_debug("Ignoring action: buf: %p, len: %zd, type: %d, sender: %d, "
+             "seqno: %lld", act->act.buf, act->act.buf_len, act->act.type,
+             act->sender_idx, act->id);
+
     if (act->act.type <= GCS_ACT_STATE_REQ) {
         gcs_gcache_free (group->cache, act->act.buf);
     }
@@ -1453,16 +1494,27 @@ gcs_group_handle_state_request (gcs_group_t*         group,
         const char* joiner_status_string = gcs_node_state_to_str(joiner_status);
 
         if (group->my_idx == joiner_idx) {
-            gu_error ("Requesting state transfer while in %s. "
-                      "Ignoring.", joiner_status_string);
-            act->id = -ECANCELED;
+            if (joiner_status >= GCS_NODE_STATE_JOINED)
+            {
+                gu_warn ("Requesting state transfer while in %s. "
+                         "Ignoring.", joiner_status_string);
+                act->id = -ECANCELED;
+            }
+            else
+            {
+                /* The node can't send two STRs in a row */
+                assert(joiner_status == GCS_NODE_STATE_JOINER);
+                gu_fatal("Requesting state transfer while in %s. "
+                         "Internal program error.", joiner_status_string);
+                act->id = -ENOTRECOVERABLE;
+            }
             return act->act.buf_len;
         }
         else {
-            gu_error ("Member %d.%d (%s) requested state transfer, "
-                      "but its state is %s. Ignoring.",
-                      joiner_idx, group->nodes[joiner_idx].segment, joiner_name,
-                      joiner_status_string);
+            gu_warn ("Member %d.%d (%s) requested state transfer, "
+                     "but its state is %s. Ignoring.",
+                     joiner_idx, group->nodes[joiner_idx].segment, joiner_name,
+                     joiner_status_string);
             gcs_group_ignore_action (group, act);
             return 0;
         }
@@ -1665,6 +1717,9 @@ group_get_node_state (const gcs_group_t* const group, long const node_idx)
         node->gcs_proto_ver,
         node->repl_proto_ver,
         node->appl_proto_ver,
+        group->prim_gcs_ver,
+        group->prim_repl_ver,
+        group->prim_appl_ver,
         node->desync_count,
         flags
         );

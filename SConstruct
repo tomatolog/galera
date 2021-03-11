@@ -1,6 +1,6 @@
 ###################################################################
 #
-# Copyright (C) 2010-2017 Codership Oy <info@codership.com>
+# Copyright (C) 2010-2020 Codership Oy <info@codership.com>
 #
 # SCons build script to build galera libraries
 #
@@ -67,15 +67,20 @@ Default target: all
 
 Commandline Options:
     debug=n             debug build with optimization level n
+    asan=[0|1]          disable or enable ASAN instrumentation
     build_dir=dir       build directory, default: '.'
     boost=[0|1]         disable or enable boost libraries
     system_asio=[0|1]   use system asio library, if available
     boost_pool=[0|1]    use or not use boost pool allocator
     revno=XXXX          source code revision number
     bpostatic=path      a path to static libboost_program_options.a
+    static_ssl=path     a path to static SSL libraries
     extra_sysroot=path  a path to extra development environment (Fink, Homebrew, MacPorts, MinGW)
     bits=[32bit|64bit]
     psi=[0|1]           instrument galera mutexes/cond-vars using mysql psi (only with pxc-5.7+)
+    install=path        install files under path
+    version_script=[0|1] Use version script (default 1)
+    crc32c_no_hardware=[0|1] disable building hardware support for CRC32C
 ''')
 # bpostatic option added on Percona request
 
@@ -95,6 +100,16 @@ link_arch    = ''
 # Build directory
 build_dir    = ''
 
+# Version script file
+galera_script = File('#/galera-sym.map').abspath
+with open(galera_script, 'w') as f:
+    f.write('''{
+    global: wsrep_loader;
+            wsrep_interface_version;
+    local:  *;
+};
+''')
+
 #
 # Read commandline options
 #
@@ -104,6 +119,7 @@ build_dir = ARGUMENTS.get('build_dir', '')
 # Debug/dbug flags
 debug = ARGUMENTS.get('debug', -1)
 dbug  = ARGUMENTS.get('dbug', False)
+asan = ARGUMENTS.get('asan', 0)
 
 debug_lvl = int(debug)
 if debug_lvl >= 0 and debug_lvl < 3:
@@ -139,16 +155,28 @@ boost      = int(ARGUMENTS.get('boost', 1))
 boost_pool = int(ARGUMENTS.get('boost_pool', 0))
 system_asio= int(ARGUMENTS.get('system_asio', 1))
 tests      = int(ARGUMENTS.get('tests', 1))
+# Run only tests which are known to be deterministic
 deterministic_tests = int(ARGUMENTS.get('deterministic_tests', 0))
+# Run all tests
+all_tests = int(ARGUMENTS.get('all_tests', 0))
 strict_build_flags = int(ARGUMENTS.get('strict_build_flags', 0))
+static_ssl = ARGUMENTS.get('static_ssl', None)
+install = ARGUMENTS.get('install', None)
+version_script = int(ARGUMENTS.get('version_script', 1))
 
 # parse psi flag option
 psi        = int(ARGUMENTS.get('psi', 0))
 if psi:
     opt_flags = opt_flags + ' -DHAVE_PSI_INTERFACE'
 
-GALERA_VER = ARGUMENTS.get('version', '3.37')
+GALERA_VER = ARGUMENTS.get('version', '3.47')
 GALERA_REV = ARGUMENTS.get('revno', 'XXXX')
+
+# Attempt to read from file if not given
+if GALERA_REV == "XXXX" and os.path.isfile("GALERA_REVISION"):
+    with open("GALERA_REVISION", "r") as f:
+        GALERA_REV = f.readline().rstrip("\n")
+
 # export to any module that might have use of those
 Export('GALERA_VER', 'GALERA_REV')
 print('Signature: version: ' + GALERA_VER + ', revision: ' + GALERA_REV)
@@ -186,14 +214,6 @@ if link != 'default':
 cc_version = str(read_first_line(env['CC'].split() + ['--version']))
 cxx_version = str(read_first_line(env['CXX'].split() + ['--version']))
 
-if python_ver >= 3:
-    cc_version = cc_version.decode()
-    cxx_version = cxx_version.decode()
-
-if python_ver >= 3:
-    cc_version = cc_version.decode()
-    cxx_version = cxx_version.decode()
-
 print('Using C compiler executable: ' + env['CC'])
 print('C compiler version is: ' + cc_version)
 print('Using C++ compiler executable: ' + env['CXX'])
@@ -218,11 +238,6 @@ if sysname == 'freebsd' or sysname == 'sunos':
     env.Append(CPPPATH = ['/usr/local/include'])
 if sysname == 'sunos':
    env.Replace(SHLINKFLAGS = '-shared ')
-
-# Build shared objects with dynamic symbol dispatching disabled.
-# This enables predictable behavior upon dynamic loading with programs
-# that have own versions of commonly used libraries linked in (boost, asio, etc.)
-env.Append(SHLINKFLAGS = ' -Wl,-Bsymbolic -Wl,-Bsymbolic-functions')
 
 # Add paths is extra_sysroot argument was specified
 extra_sysroot = ARGUMENTS.get('extra_sysroot', '')
@@ -267,6 +282,11 @@ if sysname != 'sunos':
 # static linking have beed addressed
 #
 #env.Prepend(LINKFLAGS = '-Wl,--warn-common -Wl,--fatal-warnings ')
+
+if int(asan):
+    env.Append(CCFLAGS = ' -fsanitize=address')
+    env.Append(CPPFLAGS = ' -DGALERA_WITH_ASAN')
+    env.Append(LINKFLAGS = ' -fsanitize=address')
 
 #
 # Check required headers and libraries (autoconf functionality)
@@ -375,6 +395,15 @@ def CheckSetTmpEcdh(context):
 int main() { SSL_CTX* ctx=NULL; EC_KEY* ecdh=NULL; return !SSL_CTX_set_tmp_ecdh(ctx,ecdh); }
 """
     context.Message('Checking for SSL_CTX_set_tmp_ecdh_() ... ')
+    result = context.TryLink(test_source, '.cpp')
+    context.Result(result)
+    return result
+
+def CheckVersionScript(context):
+    test_source = """
+int main() { return 0; }
+"""
+    context.Message('Checking for --version-script linker option ... ')
     result = context.TryLink(test_source, '.cpp')
     context.Result(result)
     return result
@@ -581,12 +610,33 @@ if not conf.CheckCXXHeader('asio/ssl.hpp'):
     print('SSL support required but asio/ssl.hpp was not found or not usable')
     print('check that SSL devel headers are installed and usable')
     Exit(1)
-if not conf.CheckLib('ssl'):
-    print('SSL support required but libssl was not found')
-    Exit(1)
-if not conf.CheckLib('crypto'):
-    print('SSL support required libcrypto was not found')
-    Exit(1)
+
+def check_static_lib(path, libname):
+    fqfilename = path + "/lib" + libname + '.a'
+    if os.path.isfile(fqfilename):
+        conf.env.Append(LIBS = File(fqfilename))
+        return True
+    return False
+
+if static_ssl:
+    if not check_static_lib(static_ssl, "ssl"):
+        print("Static SSL linkage requested but ssl libary not found from {}"
+              .format(static_ssl))
+        Exit(1)
+    if not check_static_lib(static_ssl, "crypto"):
+        print("Static SSL requested but crypto libary not found from {}"
+              .format(static_ssl))
+        Exit(1)
+    conf.CheckLib('pthread')
+    conf.CheckLib('dl')
+    conf.env.Append(LDFLAGS = ' -static-libgcc')
+else:
+    if not conf.CheckLib('ssl'):
+        print('SSL support required but libssl was not found')
+        Exit(1)
+    if not conf.CheckLib('crypto'):
+        print('SSL support required libcrypto was not found')
+        Exit(1)
 
 # advanced SSL features
 if conf.CheckSetEcdhAuto():
@@ -596,7 +646,7 @@ elif conf.CheckSetTmpEcdh():
 
 # these will be used only with our software
 if strict_build_flags == 1:
-    conf.env.Append(CCFLAGS = ' -Werror -pedantic')
+    conf.env.Append(CCFLAGS = ' -Werror ')
     if 'clang' in cxx_version:
         conf.env.Append(CCFLAGS  = ' -Wno-self-assign')
         conf.env.Append(CCFLAGS  = ' -Wno-gnu-zero-variadic-macro-arguments')
@@ -604,6 +654,15 @@ if strict_build_flags == 1:
         # CXX may be something like "ccache clang++"
         if 'ccache' in conf.env['CXX'] or 'ccache' in conf.env['CC']:
             conf.env.Append(CCFLAGS = ' -Qunused-arguments')
+
+# Enable libstdc++ assertions in debug build.
+if int(debug) >= 0:
+    # Skip this flag for CentOS-6 and CentOS-7
+    plat = platform.platform().lower()
+    if 'centos-6' in plat or 'centos-7' in plat:
+        print('Skipping flag _GLIBCXX_ASSERTIONS for ' + plat)
+    else:
+        conf.env.Append(CXXFLAGS = " -D_GLIBCXX_ASSERTIONS")
 
 if conf.CheckWeffcpp():
     conf.env.Prepend(CXXFLAGS = '-Weffc++ ')
@@ -617,7 +676,13 @@ print('Global flags:')
 for f in ['CFLAGS', 'CXXFLAGS', 'CCFLAGS', 'CPPFLAGS']:
     print(f + ': ' + env[f].strip())
 
-Export('x86', 'bits', 'env', 'sysname', 'libboost_program_options')
+Export('machine',
+       'x86',
+       'bits',
+       'env',
+       'sysname',
+       'libboost_program_options',
+       'install')
 
 #
 # Actions to build .dSYM directories, containing debugging information for Darwin
@@ -633,6 +698,11 @@ if sysname == 'darwin' and int(debug) >= 0 and int(debug) < 3:
 
 # Clone base from default environment
 check_env = env.Clone()
+
+if not x86:
+    # don't attempt to run the legacy protocol tests that use unaligned memory
+    # access on platforms that are not known to handle it well.
+    check_env.Append(CPPFLAGS = ' -DGALERA_ONLY_ALIGNED')
 
 conf = Configure(check_env)
 
@@ -661,6 +731,24 @@ if sysname != 'darwin':
 conf.Finish()
 
 #
+# Check version script linker option
+#
+
+test_env = env.Clone()
+# Append version script flags to general link options for test
+test_env.Append(LINKFLAGS = ' -Wl,--version-script=' + galera_script)
+
+conf = Configure(test_env, custom_tests = {
+    'CheckVersionScript': CheckVersionScript,
+})
+
+if version_script:
+    has_version_script = conf.CheckVersionScript()
+else:
+    has_version_script = False
+conf.Finish()
+
+#
 # this follows recipes from http://www.scons.org/wiki/UnitTests
 #
 
@@ -682,6 +770,7 @@ else:
 check_env.Append(BUILDERS = {'Test' :  bld})
 
 Export('check_env')
+Export('has_version_script galera_script')
 
 #
 # If deterministic_tests is given, export GALERA_TEST_DETERMINISTIC
@@ -689,7 +778,7 @@ Export('check_env')
 #
 if deterministic_tests:
    os.environ['GALERA_TEST_DETERMINISTIC'] = '1'
-
+Export('deterministic_tests all_tests')
 #
 # Run root SConscript with variant_dir
 #

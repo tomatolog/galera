@@ -1,7 +1,5 @@
 /*
- * Copyright (C) 2009-2014 Codership Oy <info@codership.com>
- *
- * $Id$
+ * Copyright (C) 2009-2020 Codership Oy <info@codership.com>
  */
 
 /*!
@@ -30,33 +28,30 @@
 #include "check.h"
 
 //
-// run_all_evs_tests is set to true by default. To disable pc tests
-// which use real TCP transport or depend on wall clock,
 // set GALERA_TEST_DETERMINISTIC env
 // variable before running pc test suite.
 //
-static class run_all_evs_tests
+static class deterministic_tests
 {
 public:
-    run_all_evs_tests()
-        : run_all_tests_()
+    deterministic_tests()
+        : deterministic_tests_()
     {
         if (::getenv("GALERA_TEST_DETERMINISTIC"))
         {
-            run_all_tests_ = false;
+            deterministic_tests_ = true;
         }
         else
         {
-            run_all_tests_ = true;
+            deterministic_tests_ = false;
         }
     }
 
-    bool operator()() const { return run_all_tests_; }
+    bool operator()() const { return deterministic_tests_; }
 
 private:
-    bool run_all_tests_;
-} run_all_evs_tests;
-
+    bool deterministic_tests_;
+} deterministic_tests;
 
 using namespace std;
 using namespace std::rel_ops;
@@ -98,7 +93,7 @@ START_TEST(test_message)
 
     UserMessage um(0, uuid1, view_id, seq, aru_seq, seq_range, O_SAFE, 75433, 0xab,
                    Message::F_SOURCE);
-    fail_unless(um.serial_size() % 4 == 0);
+    ck_assert(um.serial_size() % 4 == 0);
     check_serialization(um, um.serial_size(), UserMessage());
 
     AggregateMessage am(0xab, 17457, 0x79);
@@ -145,7 +140,8 @@ START_TEST(test_input_map_insert)
     try
     {
         im.insert(0, UserMessage(0, uuid1, view, 0));
-        fail("");
+        ck_abort_msg("Exception not thrown, input map has not been "
+                     "reset/initialized yet");
     }
     catch (...)
     {  }
@@ -167,14 +163,14 @@ START_TEST(test_input_map_insert)
     for (seqno_t s = 0; s < 10; ++s)
     {
         InputMap::iterator i = im.find(0, s);
-        fail_if(i == im.end());
-        fail_unless(InputMapMsgIndex::value(i).msg().source() == uuid1);
-        fail_unless(InputMapMsgIndex::value(i).msg().seq() == s);
+        ck_assert(i != im.end());
+        ck_assert(InputMapMsgIndex::value(i).msg().source() == uuid1);
+        ck_assert(InputMapMsgIndex::value(i).msg().seq() == s);
 
         i = im.find(1, s);
-        fail_if(i == im.end());
-        fail_unless(InputMapMsgIndex::value(i).msg().source() == uuid2);
-        fail_unless(InputMapMsgIndex::value(i).msg().seq() == s);
+        ck_assert(i != im.end());
+        ck_assert(InputMapMsgIndex::value(i).msg().source() == uuid2);
+        ck_assert(InputMapMsgIndex::value(i).msg().seq() == s);
     }
 
 }
@@ -191,21 +187,21 @@ START_TEST(test_input_map_find)
 
     im.insert(0, UserMessage(0, uuid1, view, 0));
 
-    fail_if(im.find(0, 0) == im.end());
+    ck_assert(im.find(0, 0) != im.end());
 
 
     im.insert(0, UserMessage(0, uuid1, view, 2));
     im.insert(0, UserMessage(0, uuid1, view, 4));
     im.insert(0, UserMessage(0, uuid1, view, 7));
 
-    fail_if(im.find(0, 2) == im.end());
-    fail_if(im.find(0, 4) == im.end());
-    fail_if(im.find(0, 7) == im.end());
+    ck_assert(im.find(0, 2) != im.end());
+    ck_assert(im.find(0, 4) != im.end());
+    ck_assert(im.find(0, 7) != im.end());
 
-    fail_unless(im.find(0, 3) == im.end());
-    fail_unless(im.find(0, 5) == im.end());
-    fail_unless(im.find(0, 6) == im.end());
-    fail_unless(im.find(0, 8) == im.end());
+    ck_assert(im.find(0, 3) == im.end());
+    ck_assert(im.find(0, 5) == im.end());
+    ck_assert(im.find(0, 6) == im.end());
+    ck_assert(im.find(0, 8) == im.end());
 }
 END_TEST
 
@@ -220,34 +216,34 @@ START_TEST(test_input_map_safety)
     im.reset(1);
 
     im.insert(index1, UserMessage(0, uuid1, view, 0));
-    fail_unless(im.aru_seq() == 0);
+    ck_assert(im.aru_seq() == 0);
     im.insert(index1, UserMessage(0, uuid1, view, 1));
-    fail_unless(im.aru_seq() == 1);
+    ck_assert(im.aru_seq() == 1);
     im.insert(index1, UserMessage(0, uuid1, view, 2));
-    fail_unless(im.aru_seq() == 2);
+    ck_assert(im.aru_seq() == 2);
     im.insert(index1, UserMessage(0, uuid1, view, 3));
-    fail_unless(im.aru_seq() == 3);
+    ck_assert(im.aru_seq() == 3);
     im.insert(index1, UserMessage(0, uuid1, view, 5));
-    fail_unless(im.aru_seq() == 3);
+    ck_assert(im.aru_seq() == 3);
 
     im.insert(index1, UserMessage(0, uuid1, view, 4));
-    fail_unless(im.aru_seq() == 5);
+    ck_assert(im.aru_seq() == 5);
 
     InputMap::iterator i = im.find(index1, 0);
-    fail_unless(im.is_fifo(i) == true);
-    fail_unless(im.is_agreed(i) == true);
-    fail_if(im.is_safe(i) == true);
+    ck_assert(im.is_fifo(i) == true);
+    ck_assert(im.is_agreed(i) == true);
+    ck_assert(im.is_safe(i) == false);
     im.set_safe_seq(index1, 0);
-    fail_unless(im.is_safe(i) == true);
+    ck_assert(im.is_safe(i) == true);
 
     im.set_safe_seq(index1, 5);
     i = im.find(index1, 5);
-    fail_unless(im.is_safe(i) == true);
+    ck_assert(im.is_safe(i) == true);
 
     im.insert(index1, UserMessage(0, uuid1, view, 7));
     im.set_safe_seq(index1, im.aru_seq());
     i = im.find(index1, 7);
-    fail_if(im.is_safe(i) == true);
+    ck_assert(im.is_safe(i) == false);
 
 }
 END_TEST
@@ -270,17 +266,18 @@ START_TEST(test_input_map_erase)
     for (seqno_t s = 0; s < 10; ++s)
     {
         InputMap::iterator i = im.find(index1, s);
-        fail_unless(i != im.end());
+        ck_assert(i != im.end());
         im.erase(i);
         i = im.find(index1, s);
-        fail_unless(i == im.end());
+        ck_assert(i == im.end());
         (void)im.recover(index1, s);
     }
     im.set_safe_seq(index1, 9);
     try
     {
         im.recover(index1, 9);
-        fail("");
+        ck_abort_msg("Exception not thrown, "
+                     "setting safe seq should purge index");
     }
     catch (...) { }
 }
@@ -301,7 +298,7 @@ START_TEST(test_input_map_overwrap)
     im.reset(n_nodes);
 
 
-    Date start(Date::now());
+    Date start(Date::monotonic());
     size_t cnt(0);
     seqno_t last_safe(-1);
     for (seqno_t seq = 0; seq < 100000; ++seq)
@@ -326,7 +323,7 @@ START_TEST(test_input_map_overwrap)
         gcomm_assert(im.aru_seq() == seq);
         gcomm_assert(im.safe_seq() == last_safe);
     }
-    Date stop(Date::now());
+    Date stop(Date::monotonic());
 
     double div(double(stop.get_utc() - start.get_utc())/gu::datetime::Sec);
     log_info << "input map msg rate " << double(cnt)/div;
@@ -351,7 +348,6 @@ START_TEST(test_input_map_random_insert)
 {
     log_info << "START";
     init_rand();
-    seqno_t window(1024);
     seqno_t n_seqnos(1024);
     size_t n_uuids(4);
     vector<UUID> uuids(n_uuids);
@@ -364,7 +360,7 @@ START_TEST(test_input_map_random_insert)
         uuids[i] = (static_cast<int32_t>(i + 1));
     }
 
-    im.reset(n_uuids, window);
+    im.reset(n_uuids);
 
     for (seqno_t j = 0; j < n_seqnos; ++j)
     {
@@ -383,29 +379,81 @@ START_TEST(test_input_map_random_insert)
     for (InputMap::iterator i = im.begin(); i != im.end(); ++i)
     {
         const InputMapMsg& msg(InputMapMsgIndex::value(i));
-        fail_unless(msg.msg() == msgs[n].second);
-        fail_if(im.is_safe(i) == true);
+        ck_assert(msg.msg() == msgs[n].second);
+        ck_assert(im.is_safe(i) == false);
         ++n;
     }
 
-    fail_unless(im.aru_seq() == n_seqnos - 1);
-    fail_unless(im.safe_seq() == -1);
+    ck_assert(im.aru_seq() == n_seqnos - 1);
+    ck_assert(im.safe_seq() == -1);
 
     for (size_t i = 0; i < n_uuids; ++i)
     {
-        fail_unless(im.range(i) ==
+        ck_assert(im.range(i) ==
                     Range(n_seqnos,
                           n_seqnos - 1));
 
         im.set_safe_seq(i, n_seqnos - 1);
     }
-    fail_unless(im.safe_seq() == n_seqnos - 1);
+    ck_assert(im.safe_seq() == n_seqnos - 1);
 
 }
 END_TEST
 
+START_TEST(test_input_map_gap_range_list)
+{
+    gcomm::evs::InputMap im;
+    im.reset(1);
+    gcomm::UUID uuid(1);
+    gcomm::ViewId view_id(gcomm::V_REG, uuid, 1);
+    im.insert(0, gcomm::evs::UserMessage(0, uuid, view_id, 0, 0));
+    im.insert(0, gcomm::evs::UserMessage(0, uuid, view_id, 2, 0));
 
+    std::vector<gcomm::evs::Range> gap_range(
+        im.gap_range_list(0, gcomm::evs::Range(0, 2)));
+    ck_assert(gap_range.size() == 1);
+    ck_assert(gap_range.begin()->lu() == 1);
+    ck_assert(gap_range.begin()->hs() == 1);
 
+    im.insert(0, gcomm::evs::UserMessage(0, uuid, view_id, 4, 0));
+    gap_range = im.gap_range_list(0, gcomm::evs::Range(0, 4));
+    ck_assert(gap_range.size() == 2);
+    ck_assert(gap_range.begin()->lu() == 1);
+    ck_assert(gap_range.begin()->hs() == 1);
+    ck_assert(gap_range.rbegin()->lu() == 3);
+    ck_assert(gap_range.rbegin()->hs() == 3);
+
+    // Although there are two messages missing, limiting the range to 0,2
+    // should return only the first one.
+    gap_range = im.gap_range_list(0, gcomm::evs::Range(0, 2));
+    ck_assert(gap_range.size() == 1);
+    ck_assert(gap_range.begin()->lu() == 1);
+    ck_assert(gap_range.begin()->hs() == 1);
+
+    im.insert(0, gcomm::evs::UserMessage(0, uuid, view_id, 8, 0));
+    gap_range = im.gap_range_list(0, gcomm::evs::Range(0, 8));
+    ck_assert(gap_range.size() == 3);
+    ck_assert(gap_range.begin()->lu() == 1);
+    ck_assert(gap_range.begin()->hs() == 1);
+    ck_assert(gap_range.rbegin()->lu() == 5);
+    ck_assert(gap_range.rbegin()->hs() == 7);
+
+    im.insert(0, gcomm::evs::UserMessage(0, uuid, view_id, 3, 0));
+    gap_range = im.gap_range_list(0, gcomm::evs::Range(0, 8));
+    ck_assert(gap_range.size() == 2);
+    ck_assert(gap_range.begin()->lu() == 1);
+    ck_assert(gap_range.begin()->hs() == 1);
+    ck_assert(gap_range.rbegin()->lu() == 5);
+    ck_assert(gap_range.rbegin()->hs() == 7);
+
+    im.insert(0, gcomm::evs::UserMessage(0, uuid, view_id, 1, 0));
+    im.insert(0, gcomm::evs::UserMessage(0, uuid, view_id, 5, 0));
+    im.insert(0, gcomm::evs::UserMessage(0, uuid, view_id, 6, 0));
+    im.insert(0, gcomm::evs::UserMessage(0, uuid, view_id, 7, 0));
+    gap_range = im.gap_range_list(0, gcomm::evs::Range(0, 8));
+    ck_assert(gap_range.empty());
+}
+END_TEST
 
 static Datagram* get_msg(DummyTransport* tp, Message* msg, bool release = true)
 {
@@ -432,43 +480,43 @@ static void single_join(DummyTransport* t, Proto* p)
     p->send_join();
 
     Datagram* rb = get_msg(t, &jm);
-    fail_unless(rb != 0);
-    fail_unless(jm.type() == Message::EVS_T_JOIN);
+    ck_assert(rb != 0);
+    ck_assert(jm.type() == Message::EVS_T_JOIN);
 
     // Install message is emitted at the end of JOIN handling
     // 'cause this is the only instance and is always consistent
     // with itself
     rb = get_msg(t, &im);
-    fail_unless(rb != 0);
-    fail_unless(im.type() == Message::EVS_T_INSTALL);
+    ck_assert(rb != 0);
+    ck_assert(im.type() == Message::EVS_T_INSTALL);
 
     // Handling INSTALL message emits three gap messages,
     // one for receiving install message (commit gap), one for
     // shift to install and one for shift to operational
     rb = get_msg(t, &gm);
-    fail_unless(rb != 0);
-    fail_unless(gm.type() == Message::EVS_T_GAP);
-    fail_unless((gm.flags() & Message::F_COMMIT) != 0);
+    ck_assert(rb != 0);
+    ck_assert(gm.type() == Message::EVS_T_GAP);
+    ck_assert((gm.flags() & Message::F_COMMIT) != 0);
 
     rb = get_msg(t, &gm);
-    fail_unless(rb != 0);
-    fail_unless(gm.type() == Message::EVS_T_GAP);
-    fail_unless((gm.flags() & Message::F_COMMIT) == 0);
+    ck_assert(rb != 0);
+    ck_assert(gm.type() == Message::EVS_T_GAP);
+    ck_assert((gm.flags() & Message::F_COMMIT) == 0);
 
     rb = get_msg(t, &gm);
-    fail_unless(rb != 0);
-    fail_unless(gm.type() == Message::EVS_T_GAP);
-    fail_unless((gm.flags() & Message::F_COMMIT) == 0);
+    ck_assert(rb != 0);
+    ck_assert(gm.type() == Message::EVS_T_GAP);
+    ck_assert((gm.flags() & Message::F_COMMIT) == 0);
 
     // State must have evolved JOIN -> S_GATHER -> S_INSTALL -> S_OPERATIONAL
-    fail_unless(p->state() == Proto::S_OPERATIONAL);
+    ck_assert(p->state() == Proto::S_OPERATIONAL);
 
     // Handle join message again, must stay in S_OPERATIONAL, must not
     // emit anything
     p->handle_msg(jm);
     rb = get_msg(t, &gm);
-    fail_unless(rb == 0);
-    fail_unless(p->state() == Proto::S_OPERATIONAL);
+    ck_assert(rb == 0);
+    ck_assert(p->state() == Proto::S_OPERATIONAL);
 
 }
 
@@ -515,107 +563,107 @@ static void double_join(DummyTransport* t1, Proto* p1,
 
     // Initial states check
     p2->shift_to(Proto::S_JOINING);
-    fail_unless(p1->state() == Proto::S_OPERATIONAL);
-    fail_unless(p2->state() == Proto::S_JOINING);
+    ck_assert(p1->state() == Proto::S_OPERATIONAL);
+    ck_assert(p2->state() == Proto::S_JOINING);
 
     // Send join message, don't self handle immediately
     // Expected output: one join message
     p2->send_join(false);
-    fail_unless(p2->state() == Proto::S_JOINING);
+    ck_assert(p2->state() == Proto::S_JOINING);
     rb = get_msg(t2, &jm);
-    fail_unless(rb != 0);
-    fail_unless(jm.type() == Message::EVS_T_JOIN);
+    ck_assert(rb != 0);
+    ck_assert(jm.type() == Message::EVS_T_JOIN);
     rb = get_msg(t2, &msg);
-    fail_unless(rb == 0);
+    ck_assert(rb == 0);
 
     // Handle node 2's join on node 1
     // Expected output: shift to S_GATHER and one join message
     p1->handle_msg(jm);
-    fail_unless(p1->state() == Proto::S_GATHER);
+    ck_assert(p1->state() == Proto::S_GATHER);
     rb = get_msg(t1, &jm);
-    fail_unless(rb != 0);
-    fail_unless(jm.type() == Message::EVS_T_JOIN);
+    ck_assert(rb != 0);
+    ck_assert(jm.type() == Message::EVS_T_JOIN);
     rb = get_msg(t1, &msg);
-    fail_unless(rb == 0);
+    ck_assert(rb == 0);
 
     // Handle node 1's join on node 2
     // Expected output: shift to S_GATHER and one join message
     p2->handle_msg(jm);
-    fail_unless(p2->state() == Proto::S_GATHER);
+    ck_assert(p2->state() == Proto::S_GATHER);
     rb = get_msg(t2, &jm);
-    fail_unless(rb != 0);
-    fail_unless(jm.type() == Message::EVS_T_JOIN);
+    ck_assert(rb != 0);
+    ck_assert(jm.type() == Message::EVS_T_JOIN);
     rb = get_msg(t2, &msg);
-    fail_unless(rb == 0);
+    ck_assert(rb == 0);
 
     // Handle node 2's join on node 1
     // Expected output: Install and commit gap messages, state stays in S_GATHER
     p1->handle_msg(jm);
-    fail_unless(p1->state() == Proto::S_GATHER);
+    ck_assert(p1->state() == Proto::S_GATHER);
     rb = get_msg(t1, &im);
-    fail_unless(rb != 0);
-    fail_unless(im.type() == Message::EVS_T_INSTALL);
+    ck_assert(rb != 0);
+    ck_assert(im.type() == Message::EVS_T_INSTALL);
     rb = get_msg(t1, &gm);
-    fail_unless(rb != 0);
-    fail_unless(gm.type() == Message::EVS_T_GAP);
-    fail_unless((gm.flags() & Message::F_COMMIT) != 0);
+    ck_assert(rb != 0);
+    ck_assert(gm.type() == Message::EVS_T_GAP);
+    ck_assert((gm.flags() & Message::F_COMMIT) != 0);
     rb = get_msg(t1, &msg);
-    fail_unless(rb == 0);
+    ck_assert(rb == 0);
 
     // Handle install message on node 2
     // Expected output: commit gap message and state stays in S_RECOVERY
     p2->handle_msg(im);
-    fail_unless(p2->state() == Proto::S_GATHER);
+    ck_assert(p2->state() == Proto::S_GATHER);
     rb = get_msg(t2, &gm2);
-    fail_unless(rb != 0);
-    fail_unless(gm2.type() == Message::EVS_T_GAP);
-    fail_unless((gm2.flags() & Message::F_COMMIT) != 0);
+    ck_assert(rb != 0);
+    ck_assert(gm2.type() == Message::EVS_T_GAP);
+    ck_assert((gm2.flags() & Message::F_COMMIT) != 0);
     rb = get_msg(t2, &msg);
-    fail_unless(rb == 0);
+    ck_assert(rb == 0);
 
     // Handle gap messages
     // Expected output: Both nodes shift to S_INSTALL,
     // both send gap messages
     p1->handle_msg(gm2);
-    fail_unless(p1->state() == Proto::S_INSTALL);
+    ck_assert(p1->state() == Proto::S_INSTALL);
     Message gm12;
     rb = get_msg(t1, &gm12);
-    fail_unless(rb != 0);
-    fail_unless(gm12.type() == Message::EVS_T_GAP);
-    fail_unless((gm12.flags() & Message::F_COMMIT) == 0);
+    ck_assert(rb != 0);
+    ck_assert(gm12.type() == Message::EVS_T_GAP);
+    ck_assert((gm12.flags() & Message::F_COMMIT) == 0);
     rb = get_msg(t1, &msg);
-    fail_unless(rb == 0);
+    ck_assert(rb == 0);
 
     p2->handle_msg(gm);
-    fail_unless(p2->state() == Proto::S_INSTALL);
+    ck_assert(p2->state() == Proto::S_INSTALL);
     Message gm22;
     rb = get_msg(t2, &gm22);
-    fail_unless(rb != 0);
-    fail_unless(gm22.type() == Message::EVS_T_GAP);
-    fail_unless((gm22.flags() & Message::F_COMMIT) == 0);
+    ck_assert(rb != 0);
+    ck_assert(gm22.type() == Message::EVS_T_GAP);
+    ck_assert((gm22.flags() & Message::F_COMMIT) == 0);
     rb = get_msg(t2, &msg);
-    fail_unless(rb == 0);
+    ck_assert(rb == 0);
 
     // Handle final gap messages, expected output shift to operational
     // and gap message
 
     p1->handle_msg(gm22);
-    fail_unless(p1->state() == Proto::S_OPERATIONAL);
+    ck_assert(p1->state() == Proto::S_OPERATIONAL);
     rb = get_msg(t1, &msg);
-    fail_unless(rb != 0);
-    fail_unless(msg.type() == Message::EVS_T_GAP);
-    fail_unless((msg.flags() & Message::F_COMMIT) == 0);
+    ck_assert(rb != 0);
+    ck_assert(msg.type() == Message::EVS_T_GAP);
+    ck_assert((msg.flags() & Message::F_COMMIT) == 0);
     rb = get_msg(t1, &msg);
-    fail_unless(rb == 0);
+    ck_assert(rb == 0);
 
     p2->handle_msg(gm12);
-    fail_unless(p2->state() == Proto::S_OPERATIONAL);
+    ck_assert(p2->state() == Proto::S_OPERATIONAL);
     rb = get_msg(t2, &msg);
-    fail_unless(rb != 0);
-    fail_unless(msg.type() == Message::EVS_T_GAP);
-    fail_unless((msg.flags() & Message::F_COMMIT) == 0);
+    ck_assert(rb != 0);
+    ck_assert(msg.type() == Message::EVS_T_GAP);
+    ck_assert((msg.flags() & Message::F_COMMIT) == 0);
     rb = get_msg(t2, &msg);
-    fail_unless(rb == 0);
+    ck_assert(rb == 0);
 
 }
 
@@ -666,6 +714,7 @@ static DummyNode* create_dummy_node(size_t idx,
         + Conf::EvsKeepalivePeriod + "=" + retrans_period + "&"
         + Conf::EvsJoinRetransPeriod + "=" + retrans_period + "&"
         + Conf::EvsInfoLogMask + "=0x7" + "&"
+        + Conf::EvsDebugLogMask + "=0xfff" + "&"
         + Conf::EvsVersion + "=" + gu::to_string<int>(version);
     if (::getenv("EVS_DEBUG_MASK") != 0)
     {
@@ -985,15 +1034,17 @@ END_TEST
 
 START_TEST(test_proto_leave_n_lossy)
 {
+    if (deterministic_tests()) return;
+
     gu_conf_self_tstamp_on();
     log_info << "START (leave_n_lossy)";
     init_rand();
     const size_t n_nodes(4);
     PropagationMatrix prop;
     vector<DummyNode*> dn;
-    const string suspect_timeout("PT0.5S");
-    const string inactive_timeout("PT1S");
-    const string retrans_period("PT0.1S");
+    const string suspect_timeout("PT15S");
+    const string inactive_timeout("PT30S");
+    const string retrans_period("PT1S");
 
     for (size_t i = 1; i <= n_nodes; ++i)
     {
@@ -1038,6 +1089,8 @@ END_TEST
 
 START_TEST(test_proto_leave_n_lossy_w_user_msg)
 {
+    if (deterministic_tests()) return;
+
     gu_conf_self_tstamp_on();
     log_info << "START (leave_n_lossy_w_user_msg)";
     init_rand();
@@ -1046,9 +1099,9 @@ START_TEST(test_proto_leave_n_lossy_w_user_msg)
     PropagationMatrix prop;
     vector<DummyNode*> dn;
 
-    const string suspect_timeout("PT0.5S");
-    const string inactive_timeout("PT1S");
-    const string retrans_period("PT0.1S");
+    const string suspect_timeout("PT15S");
+    const string inactive_timeout("PT30S");
+    const string retrans_period("PT1S");
 
     for (size_t i = 1; i <= n_nodes; ++i)
     {
@@ -1102,9 +1155,9 @@ static void test_proto_split_merge_gen(const size_t n_nodes,
 {
     PropagationMatrix prop;
     vector<DummyNode*> dn;
-    const string suspect_timeout("PT1.2S");
-    const string inactive_timeout("PT1.2S");
-    const string retrans_period("PT0.1S");
+    const string suspect_timeout("PT15S");
+    const string inactive_timeout("PT30S");
+    const string retrans_period("PT1S");
 
     for (size_t i = 1; i <= n_nodes; ++i)
     {
@@ -1218,6 +1271,8 @@ END_TEST
 
 START_TEST(test_proto_split_merge_lossy)
 {
+    if (deterministic_tests()) return;
+
     gu_conf_self_tstamp_on();
     log_info << "START (split_merge_lossy)";
     init_rand();
@@ -1242,6 +1297,8 @@ END_TEST
 
 START_TEST(test_proto_split_merge_lossy_w_user_msg)
 {
+    if (deterministic_tests()) return;
+
     gu_conf_self_tstamp_on();
     log_info << "START (split_merge_lossy_w_user_msg)";
     init_rand();
@@ -1469,7 +1526,6 @@ END_TEST
 
 START_TEST(test_trac_552)
 {
-    gu_conf_self_tstamp_on();
     log_info << "START (trac_552)";
     init_rand();
 
@@ -1477,9 +1533,9 @@ START_TEST(test_trac_552)
     PropagationMatrix prop;
     vector<DummyNode*> dn;
 
-    const string suspect_timeout("PT0.5S");
-    const string inactive_timeout("PT1S");
-    const string retrans_period("PT0.1S");
+    const string suspect_timeout("PT15S");
+    const string inactive_timeout("PT30S");
+    const string retrans_period("PT1S");
 
     for (size_t i = 1; i <= n_nodes; ++i)
     {
@@ -1615,15 +1671,15 @@ START_TEST(test_trac_724)
     Proto* evs0(evs_from_dummy(dn[0]));
 
     bool ret(evs0->set_param("evs.use_aggregate", "false", sync_param_cb));
-    fail_unless(ret == true);
+    ck_assert(ret == true);
     ret = evs0->set_param("evs.send_window", "1024", sync_param_cb);
-    fail_unless(ret == true);
+    ck_assert(ret == true);
     ret = evs0->set_param("evs.user_send_window", "515", sync_param_cb);
     Proto* evs1(evs_from_dummy(dn[1]));
     ret = evs1->set_param("evs.use_aggregate", "false", sync_param_cb);
-    fail_unless(ret == true);
+    ck_assert(ret == true);
     ret = evs1->set_param("evs.send_window", "1024", sync_param_cb);
-    fail_unless(ret == true);
+    ck_assert(ret == true);
     ret = evs1->set_param("evs.user_send_window", "512", sync_param_cb);
 
     prop.set_loss(1, 2, 0.);
@@ -1869,18 +1925,19 @@ START_TEST(test_gh_40)
     // dn[1] send msg(seq=1)
     dn[1]->send();
 
-
     Proto* evs1 = evs_from_dummy(dn[1]);
     Proto* evs2 = evs_from_dummy(dn[2]);
-    fail_if(evs1->state() != Proto::S_OPERATIONAL);
-    fail_if(evs2->state() != Proto::S_OPERATIONAL);
+    ck_assert(evs1->state() == Proto::S_OPERATIONAL);
+    ck_assert(evs2->state() == Proto::S_OPERATIONAL);
     evs1->set_inactive(dn[0]->uuid());
     evs2->set_inactive(dn[0]->uuid());
     evs1->check_inactive();
     evs2->check_inactive();
-    fail_if(evs1->state() != Proto::S_GATHER);
-    fail_if(evs2->state() != Proto::S_GATHER);
+    ck_assert(evs1->state() == Proto::S_GATHER);
+    ck_assert(evs2->state() == Proto::S_GATHER);
 
+    // Advance clock to get over join message rate limiting.
+    gu::datetime::SimClock::inc_time(100*gu::datetime::MSec);
     while(!(evs1->state() == Proto::S_GATHER &&
             evs1->is_install_message()))
     {
@@ -1972,66 +2029,67 @@ START_TEST(test_gh_100)
 
     // Initial states check
     p2.shift_to(Proto::S_JOINING);
-    fail_unless(p1.state() == Proto::S_OPERATIONAL);
-    fail_unless(p2.state() == Proto::S_JOINING);
+    ck_assert(p1.state() == Proto::S_OPERATIONAL);
+    ck_assert(p2.state() == Proto::S_JOINING);
 
     // Send join message, don't self handle immediately
     // Expected output: one join message
     p2.send_join(false);
-    fail_unless(p2.state() == Proto::S_JOINING);
+    ck_assert(p2.state() == Proto::S_JOINING);
     rb = get_msg(&t2, &jm);
-    fail_unless(rb != 0);
-    fail_unless(jm.type() == Message::EVS_T_JOIN);
+    ck_assert(rb != 0);
+    ck_assert(jm.type() == Message::EVS_T_JOIN);
     rb = get_msg(&t2, &msg);
-    fail_unless(rb == 0);
+    ck_assert(rb == 0);
 
     // Handle node 2's join on node 1
     // Expected output: shift to S_GATHER and one join message
     p1.handle_msg(jm);
-    fail_unless(p1.state() == Proto::S_GATHER);
+    ck_assert(p1.state() == Proto::S_GATHER);
     rb = get_msg(&t1, &jm);
-    fail_unless(rb != 0);
-    fail_unless(jm.type() == Message::EVS_T_JOIN);
+    ck_assert(rb != 0);
+    ck_assert(jm.type() == Message::EVS_T_JOIN);
     rb = get_msg(&t1, &msg);
-    fail_unless(rb == 0);
+    ck_assert(rb == 0);
 
     // Handle node 1's join on node 2
     // Expected output: shift to S_GATHER and one join message
     p2.handle_msg(jm);
-    fail_unless(p2.state() == Proto::S_GATHER);
+    ck_assert(p2.state() == Proto::S_GATHER);
     rb = get_msg(&t2, &jm);
-    fail_unless(rb != 0);
-    fail_unless(jm.type() == Message::EVS_T_JOIN);
+    ck_assert(rb != 0);
+    ck_assert(jm.type() == Message::EVS_T_JOIN);
     rb = get_msg(&t2, &msg);
-    fail_unless(rb == 0);
+    ck_assert(rb == 0);
 
     // Handle node 2's join on node 1
     // Expected output: Install and commit gap messages, state stays in S_GATHER
     p1.handle_msg(jm);
-    fail_unless(p1.state() == Proto::S_GATHER);
+    ck_assert(p1.state() == Proto::S_GATHER);
     rb = get_msg(&t1, &im);
-    fail_unless(rb != 0);
-    fail_unless(im.type() == Message::EVS_T_INSTALL);
+    ck_assert(rb != 0);
+    ck_assert(im.type() == Message::EVS_T_INSTALL);
     rb = get_msg(&t1, &gm);
-    fail_unless(rb != 0);
-    fail_unless(gm.type() == Message::EVS_T_GAP);
-    fail_unless((gm.flags() & Message::F_COMMIT) != 0);
+    ck_assert(rb != 0);
+    ck_assert(gm.type() == Message::EVS_T_GAP);
+    ck_assert((gm.flags() & Message::F_COMMIT) != 0);
     rb = get_msg(&t1, &msg);
-    fail_unless(rb == 0);
-
-    // usleep(1100000);
+    ck_assert(rb == 0);
 
     // Handle timers to  to generate shift to GATHER
     p1.handle_inactivity_timer();
     p1.handle_install_timer();
     rb = get_msg(&t1, &jm);
-    fail_unless(rb != 0);
-    fail_unless(jm.type() == Message::EVS_T_JOIN);
+    ck_assert(rb != 0);
+    ck_assert(jm.type() == Message::EVS_T_JOIN);
     rb = get_msg(&t1, &im2);
-    fail_unless(rb != 0);
-    fail_unless(im2.type() == Message::EVS_T_INSTALL);
-    fail_unless(im2.install_view_id().seq() > im.install_view_id().seq());
+    ck_assert(rb != 0);
+    ck_assert(im2.type() == Message::EVS_T_INSTALL);
+    ck_assert(im2.install_view_id().seq() > im.install_view_id().seq());
 
+    gcomm::Datagram* tmp;
+    while ((tmp = t1.out())) delete tmp;
+    while ((tmp = t2.out())) delete tmp;
 }
 END_TEST
 
@@ -2051,7 +2109,7 @@ START_TEST(test_evs_protocol_upgrade)
         ++view_seq;
         for (int j(0); j <= i; ++j)
         {
-            fail_unless(evs_from_dummy(dn[j])->current_view().version() == 0);
+            ck_assert(evs_from_dummy(dn[j])->current_view().version() == 0);
             gu_trace(send_n(dn[j], 5 + ::rand() % 4));
         }
     }
@@ -2073,7 +2131,7 @@ START_TEST(test_evs_protocol_upgrade)
         }
         gu_trace(prop.propagate_until_empty());
     }
-    fail_unless(evs_from_dummy(dn[GCOMM_PROTOCOL_MAX_VERSION])->current_view().version() == GCOMM_PROTOCOL_MAX_VERSION);
+    ck_assert(evs_from_dummy(dn[GCOMM_PROTOCOL_MAX_VERSION])->current_view().version() == GCOMM_PROTOCOL_MAX_VERSION);
     check_trace(dn);
     for_each(dn.begin(), dn.end(), DeleteObject());
 }
@@ -2104,8 +2162,8 @@ START_TEST(test_gal_521)
     single_join(t1, evs1);
     double_join(t1, evs1, t2, evs2);
 
-    fail_unless(t1->empty() == true);
-    fail_unless(t2->empty() == true);
+    ck_assert(t1->empty() == true);
+    ck_assert(t2->empty() == true);
 
     // Adjust send windows to allow sending only single user generated
     // message at the time
@@ -2119,20 +2177,20 @@ START_TEST(test_gal_521)
     // each other. This will place one user message into transport
     // queue and one into send queue for both nodes.
     send_n(dn[0], 2);
-    fail_unless(t1->empty() == false);
+    ck_assert(t1->empty() == false);
     send_n(dn[1], 2);
-    fail_unless(t2->empty() == false);
+    ck_assert(t2->empty() == false);
 
     Datagram *d1;
     Message um1;
-    fail_unless((d1 = get_msg(t1, &um1, false)) != 0);
-    fail_unless(um1.type() == Message::EVS_T_USER);
-    fail_unless(t1->empty() == true);
+    ck_assert((d1 = get_msg(t1, &um1, false)) != 0);
+    ck_assert(um1.type() == Message::EVS_T_USER);
+    ck_assert(t1->empty() == true);
     Datagram *d2;
     Message um2;
-    fail_unless((d2 = get_msg(t2, &um2, false)) != 0);
-    fail_unless(um2.type() == Message::EVS_T_USER);
-    fail_unless(t2->empty() == true);
+    ck_assert((d2 = get_msg(t2, &um2, false)) != 0);
+    ck_assert(um2.type() == Message::EVS_T_USER);
+    ck_assert(t2->empty() == true);
 
     // Both of the nodes handle each other's messages. Now due to
     // send_window == 1 they are not allowed to send the second
@@ -2141,247 +2199,501 @@ START_TEST(test_gal_521)
     evs1->handle_up(0, *d2, ProtoUpMeta(dn[1]->uuid()));
     delete d2;
     Message gm1;
-    fail_unless(get_msg(t1, &gm1) != 0);
-    fail_unless(gm1.type() == Message::EVS_T_GAP);
-    fail_unless(t1->empty() == true);
+    ck_assert(get_msg(t1, &gm1) != 0);
+    ck_assert(gm1.type() == Message::EVS_T_GAP);
+    ck_assert(t1->empty() == true);
 
     evs2->handle_up(0, *d1, ProtoUpMeta(dn[0]->uuid()));
     delete d1;
     Message gm2;
-    fail_unless(get_msg(t2, &gm2) != 0);
-    fail_unless(gm2.type() == Message::EVS_T_GAP);
-    fail_unless(t2->empty() == true);
+    ck_assert(get_msg(t2, &gm2) != 0);
+    ck_assert(gm2.type() == Message::EVS_T_GAP);
+    ck_assert(t2->empty() == true);
 
     // Handle gap messages. The safe_seq is now incremented so the
     // second user messages are now sent from output queue.
     evs1->handle_msg(gm2);
-    fail_unless((d1 = get_msg(t1, &um1, false)) != 0);
-    fail_unless(um1.type() == Message::EVS_T_USER);
-    fail_unless(t1->empty() == true);
+    ck_assert((d1 = get_msg(t1, &um1, false)) != 0);
+    ck_assert(um1.type() == Message::EVS_T_USER);
+    ck_assert(t1->empty() == true);
 
     evs2->handle_msg(gm1);
-    fail_unless((d2 = get_msg(t2, &um2, false)) != 0);
-    fail_unless(um2.type() == Message::EVS_T_USER);
-    fail_unless(t2->empty() == true);
+    ck_assert((d2 = get_msg(t2, &um2, false)) != 0);
+    ck_assert(um2.type() == Message::EVS_T_USER);
+    ck_assert(t2->empty() == true);
 
     // Handle user messages. Each node should now emit gap
     // because the output queue is empty.
     evs1->handle_up(0, *d2, ProtoUpMeta(dn[1]->uuid()));
     delete d2;
-    fail_unless(get_msg(t1, &gm1) != 0);
-    fail_unless(gm1.type() == Message::EVS_T_GAP);
-    fail_unless(t1->empty() == true);
+    ck_assert(get_msg(t1, &gm1) != 0);
+    ck_assert(gm1.type() == Message::EVS_T_GAP);
+    ck_assert(t1->empty() == true);
 
     evs2->handle_up(0, *d1, ProtoUpMeta(dn[0]->uuid()));
     delete d1;
-    fail_unless(get_msg(t2, &gm2) != 0);
-    fail_unless(gm2.type() == Message::EVS_T_GAP);
-    fail_unless(t2->empty() == true);
+    ck_assert(get_msg(t2, &gm2) != 0);
+    ck_assert(gm2.type() == Message::EVS_T_GAP);
+    ck_assert(t2->empty() == true);
 
     // Handle gap messages. No further messages should be emitted
     // since both user messages have been delivered, there are
     // no pending user messages in the output queue and no timers
     // have been expired.
     evs1->handle_msg(gm2);
-    fail_unless((d1 = get_msg(t1, &um1, false)) == 0);
+    ck_assert((d1 = get_msg(t1, &um1, false)) == 0);
 
     evs2->handle_msg(gm1);
-    fail_unless((d2 = get_msg(t2, &um2, false)) == 0);
+    ck_assert((d2 = get_msg(t2, &um2, false)) == 0);
 
 
     std::for_each(dn.begin(), dn.end(), DeleteObject());
 }
 END_TEST
 
+struct TwoNodeFixture
+{
+    struct Configs
+    {
+        Configs()
+            : conf1()
+            , conf2()
+        {
+            gu::ssl_register_params(conf1);
+            gcomm::Conf::register_params(conf1);
+            gcomm::Conf::register_params(conf2);
+        }
+        gu::Config conf1;  // Config for node1
+        gu::Config conf2;  // Config for node2
+    };
+    TwoNodeFixture()
+        : conf()
+        , uuid1(1)
+        , uuid2(2)
+        , tr1(uuid1)
+        , tr2(uuid2)
+        , evs1(conf.conf1, uuid1, 0)
+        , evs2(conf.conf2, uuid2, 0)
+        , top1(conf.conf1)
+        , top2(conf.conf2)
+    {
+        gcomm::connect(&tr1, &evs1);
+        gcomm::connect(&evs1, &top1);
+        gcomm::connect(&tr2, &evs2);
+        gcomm::connect(&evs2, &top2);
+        single_join(&tr1, &evs1);
+        double_join(&tr1, &evs1, &tr2, &evs2);
+    }
+    Configs conf;
+    const gcomm::UUID uuid1; // UUID of node1
+    const gcomm::UUID uuid2; // UUID if node2
+    DummyTransport tr1; // Transport for node1
+    DummyTransport tr2; // Transport for node2
+    gcomm::evs::Proto evs1; // Proto for node1
+    gcomm::evs::Proto evs2; // Proto for node2
+    DummyUser top1;      // Top level layer for node1
+    DummyUser top2;      // Top level layer for node2
+};
+
+// Verify that gap messages are rate limited when a node receives
+// several out of order messages.
+START_TEST(test_gap_rate_limit)
+{
+    log_info << "START test_gap_rate_limit";
+    // Start time from 1 sec to avoid hitting gap rate limit for the first
+    // gap message.
+    gu::datetime::SimClock::init(gu::datetime::Sec);
+    gu_log_max_level = GU_LOG_DEBUG;
+    TwoNodeFixture f;
+    gcomm::Protolay::sync_param_cb_t spcb;
+
+    // Increase evs1 send windows to allow generating out of order messages.
+    f.evs1.set_param("evs.send_window", "4", spcb);
+    f.evs1.set_param("evs.user_send_window", "4", spcb);
+    // Print all debug logging on node2 for test troubleshooting.
+    f.evs2.set_param("evs.debug_log_mask", "0xffff", spcb);
+    f.evs2.set_param("evs.info_log_mask", "0xff", spcb);
+    char data[1] = { 0 };
+    gcomm::Datagram dg(gu::SharedBuffer(new gu::Buffer(data, data + 1)));
+    // Generate four messages from node1. The first one is ignored,
+    // the rest are handled by node2 for generating gap messages.
+    f.evs1.handle_down(dg, ProtoDownMeta(O_SAFE));
+    gcomm::Datagram* read_dg;
+    gcomm::evs::Message um1;
+    read_dg = get_msg(&f.tr1, &um1);
+    ck_assert(read_dg != 0);
+    f.evs1.handle_down(dg, ProtoDownMeta(O_SAFE));
+    gcomm::evs::Message um2;
+    read_dg = get_msg(&f.tr1, &um2);
+    ck_assert(read_dg != 0);
+    f.evs1.handle_down(dg, ProtoDownMeta(O_SAFE));
+    gcomm::evs::Message um3;
+    read_dg = get_msg(&f.tr1, &um3);
+    ck_assert(read_dg != 0);
+    f.evs1.handle_down(dg, ProtoDownMeta(O_SAFE));
+    gcomm::evs::Message um4;
+    read_dg = get_msg(&f.tr1, &um4);
+    ck_assert(read_dg != 0);
+
+    // Make node2 handle an out of order message and verify that gap is emitted
+    f.evs2.handle_msg(um2);
+    gcomm::evs::Message gm1;
+    read_dg = get_msg(&f.tr2, &gm1);
+    ck_assert(read_dg != 0);
+    ck_assert(gm1.type() == gcomm::evs::Message::EVS_T_GAP);
+    ck_assert(gm1.range_uuid() == f.uuid1);
+    ck_assert(gm1.range().lu() == 0);
+    ck_assert(gm1.range().hs() == 0);
+    // The node2 will also send an user message to complete the sequence
+    // number. Consume it.
+    gcomm::evs::Message comp_um1;
+    read_dg = get_msg(&f.tr2, &comp_um1);
+    ck_assert(read_dg != 0);
+    ck_assert(comp_um1.type() == gcomm::evs::Message::EVS_T_USER);
+    ck_assert(comp_um1.seq() + comp_um1.seq_range() == 1);
+    // No further messages should be emitted
+    read_dg = get_msg(&f.tr2, &comp_um1);
+    ck_assert(read_dg == 0);
+
+    // Handle the second out of order message, gap should not be emitted.
+    // There will be a next user message which completes the um3.
+    f.evs2.handle_msg(um3);
+    gcomm::evs::Message comp_um2;
+    read_dg = get_msg(&f.tr2, &comp_um2);
+    ck_assert(read_dg != 0);
+    ck_assert(comp_um2.type() == gcomm::evs::Message::EVS_T_USER);
+    ck_assert(comp_um2.seq() + comp_um2.seq_range() == 2);
+
+    // There should not be any more gap messages.
+    read_dg = get_msg(&f.tr2, &gm1);
+    ck_assert(read_dg == 0);
+
+    // Move the clock forwards and handle the fourth message, gap should
+    // now emitted.
+    gu::datetime::SimClock::inc_time(100*gu::datetime::MSec);
+    gcomm::evs::Message gm2;
+    f.evs2.handle_msg(um4);
+    read_dg = get_msg(&f.tr2, &gm2);
+    ck_assert(read_dg != 0);
+    ck_assert(gm2.type() == gcomm::evs::Message::EVS_T_GAP);
+    ck_assert(gm2.range().lu() == 0);
+    ck_assert(gm2.range().hs() == 0);
+
+    gcomm::evs::Message comp_u4;
+    read_dg = get_msg(&f.tr2, &comp_u4);
+    ck_assert(read_dg != 0);
+    ck_assert(comp_u4.type() == gcomm::evs::Message::EVS_T_USER);
+    log_info << "END test_gap_rate_limit";
+}
+END_TEST
+
+// Verify that gap messages are rate limited when the liveness check finds
+// delayed node.
+START_TEST(test_gap_rate_limit_delayed)
+{
+    log_info << "START test_gap_rate_limit_delayed";
+    // Start time from 1 sec to avoid hitting gap rate limit for the first
+    // gap message.
+    gu::datetime::SimClock::init(gu::datetime::Sec);
+    gu_log_max_level = GU_LOG_DEBUG;
+    TwoNodeFixture f;
+    gcomm::Protolay::sync_param_cb_t spcb;
+
+    // Increase evs1 send windows to allow generating out of order messages.
+    f.evs1.set_param("evs.send_window", "4", spcb);
+    f.evs1.set_param("evs.user_send_window", "4", spcb);
+    // Print all debug logging on node2 for test troubleshooting.
+    f.evs2.set_param("evs.debug_log_mask", "0xffff", spcb);
+    f.evs2.set_param("evs.info_log_mask", "0xff", spcb);
+    // The retransmission request is done for delayed only if
+    // auto evict is on.
+    f.evs2.set_param("evs.auto_evict", "1", spcb);
+    const char data[1] = { 0 };
+    gcomm::Datagram dg(gu::SharedBuffer(new gu::Buffer(data, data + 1)));
+    // Generate four messages from node1. The first one is ignored,
+    // the rest are handled by node2 for generating gap messages.
+    f.evs1.handle_down(dg, ProtoDownMeta(O_SAFE));
+    gcomm::Datagram* read_dg;
+    gcomm::evs::Message um1;
+    read_dg = get_msg(&f.tr1, &um1);
+    ck_assert(read_dg != 0);
+    f.evs1.handle_down(dg, ProtoDownMeta(O_SAFE));
+    gcomm::evs::Message um2;
+    read_dg = get_msg(&f.tr1, &um2);
+    ck_assert(read_dg != 0);
+    f.evs1.handle_down(dg, ProtoDownMeta(O_SAFE));
+    gcomm::evs::Message um3;
+    read_dg = get_msg(&f.tr1, &um3);
+    ck_assert(read_dg != 0);
+    f.evs1.handle_down(dg, ProtoDownMeta(O_SAFE));
+    gcomm::evs::Message um4;
+    read_dg = get_msg(&f.tr1, &um4);
+    ck_assert(read_dg != 0);
+
+    // Make node2 handle an out of order message and verify that gap is emitted
+    f.evs2.handle_msg(um2);
+    gcomm::evs::Message gm1;
+    read_dg = get_msg(&f.tr2, &gm1);
+    ck_assert(read_dg != 0);
+    ck_assert(gm1.type() == gcomm::evs::Message::EVS_T_GAP);
+    ck_assert(gm1.range_uuid() == f.uuid1);
+    ck_assert(gm1.range().lu() == 0);
+    ck_assert(gm1.range().hs() == 0);
+    // The node2 will also send an user message to complete the sequence
+    // number. Consume it.
+    gcomm::evs::Message comp_um1;
+    read_dg = get_msg(&f.tr2, &comp_um1);
+    ck_assert(read_dg != 0);
+    ck_assert(comp_um1.type() == gcomm::evs::Message::EVS_T_USER);
+    ck_assert(comp_um1.seq() + comp_um1.seq_range() == 1);
+    // No further messages should be emitted
+    read_dg = get_msg(&f.tr2, &comp_um1);
+    ck_assert(read_dg == 0);
+
+    // Move time forwards in 1 sec interval and make inactivity check
+    // in between. No gap messages should be emitted.
+    gu::datetime::SimClock::inc_time(gu::datetime::Sec);
+    f.evs2.handle_inactivity_timer();
+    gcomm::evs::Message gm_discard;
+    read_dg = get_msg(&f.tr2, &gm_discard);
+    ck_assert(read_dg == 0);
+    // The clock is now advanced over retrans_period + delay margin. Next
+    // call to handle_inactivity_timer() should fire the check. Gap message
+    // is emitted.
+    gu::datetime::SimClock::inc_time(gu::datetime::Sec);
+    f.evs2.handle_inactivity_timer();
+    read_dg = get_msg(&f.tr2, &gm1);
+    ck_assert(read_dg != 0);
+    ck_assert(gm1.type() == gcomm::evs::Message::EVS_T_GAP);
+    // Now call handle_inactivity_timer() again, gap message should not
+    // be emitted due to rate limit.
+    f.evs2.handle_inactivity_timer();
+    read_dg = get_msg(&f.tr2, &gm_discard);
+    ck_assert(read_dg == 0);
+    // Move clock forward 100msec, new gap should be now emitted.
+    gu::datetime::SimClock::inc_time(100*gu::datetime::MSec);
+    f.evs2.handle_inactivity_timer();
+    gcomm::evs::Message gm2;
+    read_dg = get_msg(&f.tr2, &gm2);
+    ck_assert(read_dg != 0);
+    ck_assert(gm2.type() == gcomm::evs::Message::EVS_T_GAP);
+    log_info << "END test_gap_rate_limit_delayed";
+
+    gcomm::Datagram* tmp;
+    while ((tmp = f.tr1.out())) delete tmp;
+    while ((tmp = f.tr2.out())) delete tmp;
+}
+END_TEST
+
+START_TEST(test_out_queue_limit)
+{
+    TwoNodeFixture f;
+
+    std::vector<char> data(1 << 15);
+    gcomm::Datagram dg(gu::SharedBuffer(
+                           new gu::Buffer(data.begin(), data.end())));
+    // Default user send window is 4 and out queue limit is 1M,
+    // so we can write 4 + 32 messages without blocking.
+    for (size_t i(0); i < 36; ++i)
+    {
+        ck_assert(f.evs1.handle_down(dg, ProtoDownMeta(O_SAFE)) == 0);
+    }
+    // The next write should fill the out_queue and return EAGAIN
+    const char small_data[1] = { 0 };
+    dg = gu::SharedBuffer(new gu::Buffer(small_data, small_data + 1));
+    ck_assert(f.evs1.handle_down(dg, ProtoDownMeta(O_SAFE)) == EAGAIN);
+
+    gcomm::Datagram* tmp;
+    while ((tmp = f.tr1.out())) delete tmp;
+}
+END_TEST
 
 Suite* evs2_suite()
 {
     Suite* s = suite_create("gcomm::evs");
     TCase* tc;
 
-    bool skip(false);
+    tc = tcase_create("test_range");
+    tcase_add_test(tc, test_range);
+    suite_add_tcase(s, tc);
 
-    if (skip == false)
-    {
-        tc = tcase_create("test_range");
-        tcase_add_test(tc, test_range);
-        suite_add_tcase(s, tc);
+    tc = tcase_create("test_message");
+    tcase_add_test(tc, test_message);
+    suite_add_tcase(s, tc);
 
-        tc = tcase_create("test_message");
-        tcase_add_test(tc, test_message);
-        suite_add_tcase(s, tc);
+    tc = tcase_create("test_input_map_insert");
+    tcase_add_test(tc, test_input_map_insert);
+    suite_add_tcase(s, tc);
 
-        tc = tcase_create("test_input_map_insert");
-        tcase_add_test(tc, test_input_map_insert);
-        suite_add_tcase(s, tc);
+    tc = tcase_create("test_input_map_find");
+    tcase_add_test(tc, test_input_map_find);
+    suite_add_tcase(s, tc);
 
-        tc = tcase_create("test_input_map_find");
-        tcase_add_test(tc, test_input_map_find);
-        suite_add_tcase(s, tc);
+    tc = tcase_create("test_input_map_safety");
+    tcase_add_test(tc, test_input_map_safety);
+    suite_add_tcase(s, tc);
 
-        tc = tcase_create("test_input_map_safety");
-        tcase_add_test(tc, test_input_map_safety);
-        suite_add_tcase(s, tc);
+    tc = tcase_create("test_input_map_erase");
+    tcase_add_test(tc, test_input_map_erase);
+    suite_add_tcase(s, tc);
 
-        tc = tcase_create("test_input_map_erase");
-        tcase_add_test(tc, test_input_map_erase);
-        suite_add_tcase(s, tc);
+    tc = tcase_create("test_input_map_overwrap");
+    tcase_add_test(tc, test_input_map_overwrap);
+    tcase_set_timeout(tc, 60);
+    suite_add_tcase(s, tc);
 
-        tc = tcase_create("test_input_map_overwrap");
-        tcase_add_test(tc, test_input_map_overwrap);
-        tcase_set_timeout(tc, 60);
-        suite_add_tcase(s, tc);
+    tc = tcase_create("test_input_map_random_insert");
+    tcase_add_test(tc, test_input_map_random_insert);
+    suite_add_tcase(s, tc);
 
-        tc = tcase_create("test_input_map_random_insert");
-        tcase_add_test(tc, test_input_map_random_insert);
-        suite_add_tcase(s, tc);
+    tc = tcase_create("test_input_map_gap_range_list");
+    tcase_add_test(tc, test_input_map_gap_range_list);
+    suite_add_tcase(s, tc);
 
+    tc = tcase_create("test_proto_single_join");
+    tcase_add_test(tc, test_proto_single_join);
+    suite_add_tcase(s, tc);
 
-        tc = tcase_create("test_proto_single_join");
-        tcase_add_test(tc, test_proto_single_join);
-        suite_add_tcase(s, tc);
+    tc = tcase_create("test_proto_double_join");
+    tcase_add_test(tc, test_proto_double_join);
+    suite_add_tcase(s, tc);
 
-        tc = tcase_create("test_proto_double_join");
-        tcase_add_test(tc, test_proto_double_join);
-        suite_add_tcase(s, tc);
+    tc = tcase_create("test_proto_join_n");
+    tcase_add_test(tc, test_proto_join_n);
+    suite_add_tcase(s, tc);
 
-        if (run_all_evs_tests() == true)
-        {
-            tc = tcase_create("test_proto_join_n");
-            tcase_add_test(tc, test_proto_join_n);
-            suite_add_tcase(s, tc);
+    tc = tcase_create("test_proto_join_n_w_user_msg");
+    tcase_add_test(tc, test_proto_join_n_w_user_msg);
+    suite_add_tcase(s, tc);
 
-            tc = tcase_create("test_proto_join_n_w_user_msg");
-            tcase_add_test(tc, test_proto_join_n_w_user_msg);
-            suite_add_tcase(s, tc);
+    tc = tcase_create("test_proto_join_n_lossy");
+    tcase_add_test(tc, test_proto_join_n_lossy);
+    suite_add_tcase(s, tc);
 
-            tc = tcase_create("test_proto_join_n_lossy");
-            tcase_add_test(tc, test_proto_join_n_lossy);
-            suite_add_tcase(s, tc);
+    tc = tcase_create("test_proto_join_n_lossy_w_user_msg");
+    tcase_add_test(tc, test_proto_join_n_lossy_w_user_msg);
+    suite_add_tcase(s, tc);
 
-            tc = tcase_create("test_proto_join_n_lossy_w_user_msg");
-            tcase_add_test(tc, test_proto_join_n_lossy_w_user_msg);
-            suite_add_tcase(s, tc);
+    tc = tcase_create("test_proto_leave_n");
+    tcase_add_test(tc, test_proto_leave_n);
+    tcase_set_timeout(tc, 20);
+    suite_add_tcase(s, tc);
 
-            tc = tcase_create("test_proto_leave_n");
-            tcase_add_test(tc, test_proto_leave_n);
-            tcase_set_timeout(tc, 20);
-            suite_add_tcase(s, tc);
+    tc = tcase_create("test_proto_leave_n_w_user_msg");
+    tcase_add_test(tc, test_proto_leave_n_w_user_msg);
+    tcase_set_timeout(tc, 20);
+    suite_add_tcase(s, tc);
 
-            tc = tcase_create("test_proto_leave_n_w_user_msg");
-            tcase_add_test(tc, test_proto_leave_n_w_user_msg);
-            tcase_set_timeout(tc, 20);
-            suite_add_tcase(s, tc);
+    tc = tcase_create("test_proto_leave_n_lossy");
+    tcase_add_test(tc, test_proto_leave_n_lossy);
+    tcase_set_timeout(tc, 25);
+    suite_add_tcase(s, tc);
 
-            tc = tcase_create("test_proto_leave_n_lossy");
-            tcase_add_test(tc, test_proto_leave_n_lossy);
-            tcase_set_timeout(tc, 25);
-            suite_add_tcase(s, tc);
+    tc = tcase_create("test_proto_leave_n_lossy_w_user_msg");
+    tcase_add_test(tc, test_proto_leave_n_lossy_w_user_msg);
+    tcase_set_timeout(tc, 25);
+    suite_add_tcase(s, tc);
 
-            tc = tcase_create("test_proto_leave_n_lossy_w_user_msg");
-            tcase_add_test(tc, test_proto_leave_n_lossy_w_user_msg);
-            tcase_set_timeout(tc, 25);
-            suite_add_tcase(s, tc);
+    tc = tcase_create("test_proto_split_merge");
+    tcase_add_test(tc, test_proto_split_merge);
+    tcase_set_timeout(tc, 20);
+    suite_add_tcase(s, tc);
 
-            tc = tcase_create("test_proto_split_merge");
-            tcase_add_test(tc, test_proto_split_merge);
-            tcase_set_timeout(tc, 20);
-            suite_add_tcase(s, tc);
+    tc = tcase_create("test_proto_split_merge_lossy");
+    tcase_add_test(tc, test_proto_split_merge_lossy);
+    tcase_set_timeout(tc, 20);
+    suite_add_tcase(s, tc);
 
-            tc = tcase_create("test_proto_split_merge_lossy");
-            tcase_add_test(tc, test_proto_split_merge_lossy);
-            tcase_set_timeout(tc, 20);
-            suite_add_tcase(s, tc);
+    tc = tcase_create("test_proto_split_merge_w_user_msg");
+    tcase_add_test(tc, test_proto_split_merge_w_user_msg);
+    tcase_set_timeout(tc, 60);
+    suite_add_tcase(s, tc);
 
-            tc = tcase_create("test_proto_split_merge_w_user_msg");
-            tcase_add_test(tc, test_proto_split_merge_w_user_msg);
-            tcase_set_timeout(tc, 60);
-            suite_add_tcase(s, tc);
+    tc = tcase_create("test_proto_split_merge_lossy_w_user_msg");
+    tcase_add_test(tc, test_proto_split_merge_lossy_w_user_msg);
+    tcase_set_timeout(tc, 60);
+    suite_add_tcase(s, tc);
 
-            tc = tcase_create("test_proto_split_merge_lossy_w_user_msg");
-            tcase_add_test(tc, test_proto_split_merge_lossy_w_user_msg);
-            tcase_set_timeout(tc, 60);
-            suite_add_tcase(s, tc);
+    tc = tcase_create("test_proto_stop_cont");
+    tcase_add_test(tc, test_proto_stop_cont);
+    tcase_set_timeout(tc, 10);
+    suite_add_tcase(s, tc);
 
-            tc = tcase_create("test_proto_stop_cont");
-            tcase_add_test(tc, test_proto_stop_cont);
-            tcase_set_timeout(tc, 10);
-            suite_add_tcase(s, tc);
-        }
+    tc = tcase_create("test_proto_split_two");
+    tcase_add_test(tc, test_proto_split_two);
+    suite_add_tcase(s, tc);
 
-        if (run_all_evs_tests() == true)
-        {
-            tc = tcase_create("test_proto_split_two");
-            tcase_add_test(tc, test_proto_split_two);
-            suite_add_tcase(s, tc);
+    tc = tcase_create("test_aggreg");
+    tcase_add_test(tc, test_aggreg);
+    suite_add_tcase(s, tc);
 
-            tc = tcase_create("test_aggreg");
-            tcase_add_test(tc, test_aggreg);
-            suite_add_tcase(s, tc);
-        }
+    tc = tcase_create("test_proto_arbitrate");
+    tcase_add_test(tc, test_proto_arbitrate);
+    suite_add_tcase(s, tc);
 
-        if (run_all_evs_tests() == true)
-        {
-            tc = tcase_create("test_proto_arbitrate");
-            tcase_add_test(tc, test_proto_arbitrate);
-            suite_add_tcase(s, tc);
+    tc = tcase_create("test_trac_538");
+    tcase_add_test(tc, test_trac_538);
+    tcase_set_timeout(tc, 15);
+    suite_add_tcase(s, tc);
 
-            tc = tcase_create("test_trac_538");
-            tcase_add_test(tc, test_trac_538);
-            tcase_set_timeout(tc, 15);
-            suite_add_tcase(s, tc);
+    tc = tcase_create("test_trac_552");
+    tcase_add_test(tc, test_trac_552);
+    tcase_set_timeout(tc, 15);
+    suite_add_tcase(s, tc);
 
-            tc = tcase_create("test_trac_552");
-            tcase_add_test(tc, test_trac_552);
-            tcase_set_timeout(tc, 15);
-            suite_add_tcase(s, tc);
+    tc = tcase_create("test_trac_607");
+    tcase_add_test(tc, test_trac_607);
+    tcase_set_timeout(tc, 15);
+    suite_add_tcase(s, tc);
 
-            tc = tcase_create("test_trac_607");
-            tcase_add_test(tc, test_trac_607);
-            tcase_set_timeout(tc, 15);
-            suite_add_tcase(s, tc);
+    tc = tcase_create("test_trac_724");
+    tcase_add_test(tc, test_trac_724);
+    tcase_set_timeout(tc, 15);
+    suite_add_tcase(s, tc);
 
-            tc = tcase_create("test_trac_724");
-            tcase_add_test(tc, test_trac_724);
-            tcase_set_timeout(tc, 15);
-            suite_add_tcase(s, tc);
+    tc = tcase_create("test_trac_760");
+    tcase_add_test(tc, test_trac_760);
+    tcase_set_timeout(tc, 15);
+    suite_add_tcase(s, tc);
 
-            tc = tcase_create("test_trac_760");
-            tcase_add_test(tc, test_trac_760);
-            tcase_set_timeout(tc, 15);
-            suite_add_tcase(s, tc);
+    tc = tcase_create("test_gh_41");
+    tcase_add_test(tc, test_gh_41);
+    tcase_set_timeout(tc, 15);
+    suite_add_tcase(s, tc);
 
-            tc = tcase_create("test_gh_41");
-            tcase_add_test(tc, test_gh_41);
-            tcase_set_timeout(tc, 15);
-            suite_add_tcase(s, tc);
+    tc = tcase_create("test_gh_37");
+    tcase_add_test(tc, test_gh_37);
+    tcase_set_timeout(tc, 15);
+    suite_add_tcase(s, tc);
 
-            tc = tcase_create("test_gh_37");
-            tcase_add_test(tc, test_gh_37);
-            tcase_set_timeout(tc, 15);
-            suite_add_tcase(s, tc);
+    tc = tcase_create("test_gh_40");
+    tcase_add_test(tc, test_gh_40);
+    tcase_set_timeout(tc, 5);
+    suite_add_tcase(s, tc);
 
-            tc = tcase_create("test_gh_40");
-            tcase_add_test(tc, test_gh_40);
-            tcase_set_timeout(tc, 5);
-            suite_add_tcase(s, tc);
-        }
+    tc = tcase_create("test_gh_100");
+    tcase_add_test(tc, test_gh_100);
+    suite_add_tcase(s, tc);
 
-        tc = tcase_create("test_gh_100");
-        tcase_add_test(tc, test_gh_100);
-        suite_add_tcase(s, tc);
+    tc = tcase_create("test_evs_protocol_upgrade");
+    tcase_add_test(tc, test_evs_protocol_upgrade);
+    suite_add_tcase(s, tc);
 
-        if (run_all_evs_tests() == true)
-        {
-            tc = tcase_create("test_evs_protocol_upgrade");
-            tcase_add_test(tc, test_evs_protocol_upgrade);
-            suite_add_tcase(s, tc);
-        }
+    tc = tcase_create("test_gal_521");
+    tcase_add_test(tc, test_gal_521);
+    suite_add_tcase(s, tc);
 
-        tc = tcase_create("test_gal_521");
-        tcase_add_test(tc, test_gal_521);
-        suite_add_tcase(s, tc);
-    }
+    tc = tcase_create("test_gap_rate_limit");
+    tcase_add_test(tc, test_gap_rate_limit);
+    suite_add_tcase(s, tc);
+
+    tc = tcase_create("test_gap_rate_limit_delayed");
+    tcase_add_test(tc, test_gap_rate_limit_delayed);
+    suite_add_tcase(s, tc);
+
+    tc = tcase_create("test_out_queue_limit");
+    tcase_add_test(tc, test_out_queue_limit);
+    suite_add_tcase(s, tc);
 
     return s;
 }
