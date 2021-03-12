@@ -20,6 +20,7 @@ SET ( GALERAUTILS_SOURCES
 		gu_limits.c
 		gu_time.c
 		gu_init.c
+		gu_crc32c_x86.c
 		)
 
 SET ( GALERAUTILS_HEADERS
@@ -66,7 +67,6 @@ SET ( GALERAUTILSXX_SOURCES
 		gu_exception.cpp
 		gu_serialize.cpp
 		gu_logger.cpp
-		gu_prodcons.cpp
 		gu_regex.cpp
 		gu_string_utils.cpp
 		gu_uri.cpp
@@ -116,7 +116,6 @@ SET ( GALERAUTILSXX_HEADERS
 		gu_mmap.hpp
 		gu_monitor.hpp
 		gu_mutex.hpp
-		gu_prodcons.hpp
 		gu_progress.hpp
 		gu_regex.hpp
 		gu_reserved_container.hpp
@@ -138,21 +137,14 @@ SET ( GALERAUTILSXX_HEADERS
 		gu_uuid.hpp
 		gu_vector.hpp
 		gu_vlq.hpp
+		gu_deqmap.hpp
+		gu_inttypes.hpp
 		)
-
-add_library ( crc32 OBJECT ${GALERA_SOURCE_DIR}/www.evanjones.ca/crc32c.c
-				${GALERA_SOURCE_DIR}/www.evanjones.ca/crc32c.h)
-target_compile_options ( crc32 PRIVATE ${cc_flags} ${c_flags} )
-
-target_compile_definitions ( crc32 PRIVATE WITH_GALERA )
-if ( CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" OR CMAKE_SYSTEM_PROCESSOR STREQUAL "amd64" )
-	target_compile_options( crc32 PRIVATE "-msse4.2" )
-endif ()
 
 add_library ( galerautils OBJECT ${GALERAUTILS_SOURCES} ${GALERAUTILS_HEADERS} )
 target_compile_options ( galerautils PRIVATE ${cc_flags} ${c_flags} -Wno-missing-field-initializers )
 
-add_library ( galerautilsxx STATIC  ${GALERAUTILSXX_SOURCES} ${GALERAUTILSXX_HEADERS} $<TARGET_OBJECTS:galerautils> $<TARGET_OBJECTS:crc32> )
+add_library ( galerautilsxx STATIC  ${GALERAUTILSXX_SOURCES} ${GALERAUTILSXX_HEADERS} $<TARGET_OBJECTS:galerautils> )
 
 target_compile_options (galerautilsxx PRIVATE ${cc_flags} ${cxx_flags} -Wno-old-style-cast -Wno-missing-field-initializers)
 target_include_directories(galerautilsxx PRIVATE "${GALERA_SOURCE_DIR}/common")

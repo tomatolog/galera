@@ -40,9 +40,9 @@ SEt ( LIBCOMM_HEADERS
 		pc.hpp
 		pc_message.hpp
 		pc_proto.hpp
-		profile.hpp
 		protocol_version.hpp
 		socket.hpp
+		fair_send_queue.hpp
 		)
 
 SET ( LIBCOMM_ASIO_SOURCES "")
