@@ -20,7 +20,6 @@ SET ( GALERAUTILS_SOURCES
 		gu_limits.c
 		gu_time.c
 		gu_init.c
-		gu_crc32c_x86.c
 		)
 
 SET ( GALERAUTILS_HEADERS
@@ -141,10 +140,18 @@ SET ( GALERAUTILSXX_HEADERS
 		gu_inttypes.hpp
 		)
 
+add_library ( crc32 OBJECT gu_crc32c_x86.c )
+target_compile_options ( crc32 PRIVATE ${cc_flags} ${c_flags} )
+
+target_compile_definitions ( crc32 PRIVATE WITH_GALERA )
+if ( CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" OR CMAKE_SYSTEM_PROCESSOR STREQUAL "amd64" )
+	target_compile_options( crc32 PRIVATE "-msse4.2" )
+endif ()
+
 add_library ( galerautils OBJECT ${GALERAUTILS_SOURCES} ${GALERAUTILS_HEADERS} )
 target_compile_options ( galerautils PRIVATE ${cc_flags} ${c_flags} -Wno-missing-field-initializers )
 
-add_library ( galerautilsxx STATIC  ${GALERAUTILSXX_SOURCES} ${GALERAUTILSXX_HEADERS} $<TARGET_OBJECTS:galerautils> )
+add_library ( galerautilsxx STATIC  ${GALERAUTILSXX_SOURCES} ${GALERAUTILSXX_HEADERS} $<TARGET_OBJECTS:galerautils> $<TARGET_OBJECTS:crc32> )
 
 target_compile_options (galerautilsxx PRIVATE ${cc_flags} ${cxx_flags} -Wno-old-style-cast -Wno-missing-field-initializers)
 target_include_directories(galerautilsxx PRIVATE "${GALERA_SOURCE_DIR}/common")
